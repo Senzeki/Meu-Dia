@@ -58,6 +58,7 @@ Deno.serve(async (req: Request) => {
 
   const rotinasUrl = Deno.env.get('ROTINAS_SUPABASE_URL') ?? '';
   const rotinasKey = Deno.env.get('ROTINAS_SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  const rotinasContaId = Deno.env.get('ROTINAS_CONTA_ID') ?? '';
   if (!rotinasUrl || !rotinasKey) {
     return jsonResponse({
       configured: false,
@@ -70,12 +71,27 @@ Deno.serve(async (req: Request) => {
   const rotinasClient = createClient(rotinasUrl, rotinasKey);
   const nowIso = new Date().toISOString();
 
-  const { data: existing } = await rotinasClient
+  let targetContaId = rotinasContaId;
+  if (!targetContaId) {
+    const { data: contaRow } = await rotinasClient
+      .from('produtos_armario')
+      .select('conta_id')
+      .limit(1)
+      .maybeSingle();
+    targetContaId = (contaRow?.conta_id as string | undefined) ?? user.id;
+  }
+
+  let existingQuery = rotinasClient
     .from('produtos_armario')
     .select('id')
     .ilike('nome', itemName)
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+
+  if (targetContaId) {
+    existingQuery = existingQuery.eq('conta_id', targetContaId);
+  }
+
+  const { data: existing } = await existingQuery.maybeSingle();
 
   if (existing?.id) {
     const { error } = await rotinasClient
@@ -93,7 +109,9 @@ Deno.serve(async (req: Request) => {
     }
   } else {
     const { error } = await rotinasClient.from('produtos_armario').insert({
+      conta_id: targetContaId,
       nome: itemName,
+      categoria: 'Outros',
       status: 'falta',
       na_lista_mercado: true,
       canal_preferencial: 'mercado',

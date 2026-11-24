@@ -35,6 +35,9 @@ coverage/
 # Personal data backups (NEVER commit)
 backups/
 
+# Supabase CLI local link state
+supabase/.temp/
+
 # Logs & OS
 *.log
 npm-debug.log*

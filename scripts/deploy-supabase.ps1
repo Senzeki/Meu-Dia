@@ -37,7 +37,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host '[4/4] Publicando Edge Functions (assistant-ingest, dispatch-notifications, pontes)...' -ForegroundColor Yellow
 foreach ($fn in @('assistant-ingest', 'dispatch-notifications', 'bridge-rotinas', 'bridge-passatempos')) {
   Write-Host "  -> Deploying $fn..." -ForegroundColor Cyan
-  npx supabase functions deploy $fn --no-verify-jwt
+  npx supabase functions deploy $fn --no-verify-jwt --remote=$ProjectRef --yes
   if ($LASTEXITCODE -ne 0) {
     throw "Falha ao publicar Edge Function $fn."
   }
