@@ -74,14 +74,27 @@ export interface ChatMessage extends SyncBaseEntity {
   linked_entities: LinkedEntityRef[];
 }
 
+export interface AssistantContextAsset {
+  id: UUID;
+  name: string;
+  category: string;
+  meter_unit: 'km' | 'hours' | 'none';
+  current_meter: number | null;
+}
+
 export interface AssistantIngestRequest {
   message_id: UUID;
   text?: string;
   audio_base64?: string;
   audio_mime_type?: string;
+  audio_duration_seconds?: number;
   media_path?: string | null;
   local_iso_now: ISOTimestamp;
   timezone: string;
+  context?: {
+    assets?: AssistantContextAsset[];
+    partner_name?: string | null;
+  };
 }
 
 export interface AssistantIngestResponse {

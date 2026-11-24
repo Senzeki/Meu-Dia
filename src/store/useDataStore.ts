@@ -235,6 +235,7 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
     careRules: [],
     vaultItems: [],
     localMediaUrls: {},
+    pendingAudioCount: 0,
 
     hydrate: async () => {
       if (activeHydratePromise) {
@@ -1782,5 +1783,9 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
       const profile = useAuthStore.getState().profile;
       return exportBackupFromLocalDb(profile);
     },
+
+    resolveClarification: async () => undefined,
+    editAudioTranscript: async () => undefined,
+    triggerWeeklyCheckinIfDue: async () => false,
   };
 });

@@ -30,6 +30,8 @@ export interface SendChatInputParams {
   text?: string;
   image_blob?: Blob | null;
   image_title?: string;
+  audio_blob?: Blob | null;
+  audio_duration_seconds?: number;
 }
 
 export type RedirectActionTarget =
@@ -143,10 +145,14 @@ export interface DataStoreContract {
   careRules: CareRule[];
   vaultItems: VaultItem[];
   localMediaUrls: Record<string, string>;
+  pendingAudioCount: number;
 
   hydrate: () => Promise<void>;
   loadOlderMessages: () => Promise<number>;
   sendChatInput: (params: SendChatInputParams) => Promise<void>;
+  resolveClarification: (messageId: UUID, optionId: string) => Promise<void>;
+  editAudioTranscript: (messageId: UUID, correctedText: string) => Promise<void>;
+  triggerWeeklyCheckinIfDue: () => Promise<boolean>;
   undoOrRedirectMessageAction: (
     messageId: UUID,
     target: RedirectActionTarget,
