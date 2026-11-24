@@ -21,6 +21,7 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.google.firebase.messaging.FirebaseMessaging;
 import java.lang.ref.WeakReference;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -87,6 +88,37 @@ public class MeuDiaNativePlugin extends Plugin {
             synchronized (pendingNotificationActions) {
                 pendingNotificationActions.add(payload);
             }
+        }
+    }
+
+    public static void notifyNewFcmToken(String token) {
+        if (token == null || token.isEmpty()) return;
+        MeuDiaNativePlugin instance = activeInstance.get();
+        if (instance != null && instance.hasListeners("fcmTokenUpdated")) {
+            JSObject payload = new JSObject();
+            payload.put("token", token);
+            instance.notifyListeners("fcmTokenUpdated", payload);
+        }
+    }
+
+    @PluginMethod
+    public void getFcmToken(PluginCall call) {
+        try {
+            FirebaseMessaging.getInstance()
+                .getToken()
+                .addOnCompleteListener(task -> {
+                    JSObject ret = new JSObject();
+                    if (task.isSuccessful() && task.getResult() != null) {
+                        ret.put("token", task.getResult());
+                    } else {
+                        ret.put("token", JSObject.NULL);
+                    }
+                    call.resolve(ret);
+                });
+        } catch (Exception ex) {
+            JSObject ret = new JSObject();
+            ret.put("token", JSObject.NULL);
+            call.resolve(ret);
         }
     }
 
@@ -273,15 +305,35 @@ public class MeuDiaNativePlugin extends Plugin {
 
     @PluginMethod
     public void showMessageNotification(PluginCall call) {
-        Context ctx = getContext();
-        createNotificationChannels(ctx);
-
         String jobId = call.getString("jobId", String.valueOf(System.currentTimeMillis()));
         String title = call.getString("title", "Meu Dia");
         String body = call.getString("body", "");
         String entityType = call.getString("entityType", "task");
         String entityId = call.getString("entityId", "");
         String deepLinkMessageId = call.getString("deepLinkMessageId", "");
+
+        showMessageNotificationInternal(
+            getContext(),
+            jobId,
+            title,
+            body,
+            entityType,
+            entityId,
+            deepLinkMessageId
+        );
+        call.resolve();
+    }
+
+    public static void showMessageNotificationInternal(
+        Context ctx,
+        String jobId,
+        String title,
+        String body,
+        String entityType,
+        String entityId,
+        String deepLinkMessageId
+    ) {
+        createNotificationChannels(ctx);
 
         int notifId = Math.abs(jobId.hashCode());
 
@@ -344,7 +396,6 @@ public class MeuDiaNativePlugin extends Plugin {
             .addAction(0, "Concluir", completePending);
 
         NotificationManagerCompat.from(ctx).notify(notifId, builder.build());
-        call.resolve();
     }
 
     private String checkNotificationsPermission(Context ctx) {

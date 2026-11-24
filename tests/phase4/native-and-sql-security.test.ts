@@ -86,6 +86,8 @@ describe('Auditoria Fase 4: SQL Triggers/Cron, Edge Functions, AndroidManifest e
     expect(manifest).toContain('CallAlarmActivity');
     expect(manifest).toContain('CallAlarmReceiver');
     expect(manifest).toContain('NotificationActionReceiver');
+    expect(manifest).toContain('MeuDiaFirebaseMessagingService');
+    expect(manifest).toContain('com.google.firebase.MESSAGING_EVENT');
   });
 
   it('garante zero segredos de push ou pontes externas em src/', () => {

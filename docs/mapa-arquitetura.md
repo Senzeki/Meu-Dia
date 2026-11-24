@@ -68,6 +68,7 @@
 - `src/services/assistantService.ts` — Orquestração híbrida Edge Function `assistant-ingest` (`local_iso_now` + `timezone`) com fallback resiliente para motor local / fila offline de áudio.
 - `src/services/checkinService.ts` — Check-in semanal proativo em `America/Sao_Paulo` para medidores sem leitura há >= 7 dias (respeitando pausas e sem duplicatas).
 - `src/services/bridgeService.ts` — Cliente desacoplado das pontes opcionais `bridge-rotinas` e `bridge-passatempos` com degradação graciosa.
+- `src/services/pushTokenService.ts` — Registro e renovação do token FCM Android em `device_push_tokens` com fallback silencioso na Web.
 
 ## `src/store/` (Estado Global Zustand)
 - `src/store/useAuthStore.ts` — Sessão, perfil local/remoto, parceiro vinculado e gerenciamento de convites da Casa.
@@ -120,6 +121,7 @@
 - `android/app/src/main/java/com/meudia/app/CallAlarmReceiver.java` — Deduplicação por `job_id` (5 min) e disparo de notificação `FullScreenIntent` no canal `meudia_call_alarm`.
 - `android/app/src/main/java/com/meudia/app/CallAlarmActivity.java` — Tela cheia sobre bloqueio com toque/vibração contínuos, botões **Atender** (deep link) e **Adiar 10 min**.
 - `android/app/src/main/java/com/meudia/app/NotificationActionReceiver.java` — Ações inline (`Adiar 1h`, `Concluir`, `Adiar 10 min`, `Abrir`).
+- `android/app/src/main/java/com/meudia/app/MeuDiaFirebaseMessagingService.java` — Receptor FCM nativo que aciona `CallAlarmReceiver` (Modo Ligação) ou `MeuDiaNativePlugin` (mensagens com ações inline) mesmo com o app fechado.
 - `scripts/gerar-apk.ps1` — Script automatizado com sincronização de versão (`package.json` + `build.gradle`), autodetecção de JDK 21 / `ANDROID_HOME`, build Web, `npx cap sync android`, `gradlew.bat assembleDebug` e publicação no Google Drive (`G:\Meu Drive\Programacão\Meu Dia\`) com `log_atualizacoes.txt`.
 - `scripts/sync-supabase-secrets.ps1` — Envia com 1 comando os segredos de `supabase/functions/.env` (gitignored) para as Edge Functions do novo projeto Supabase.
 - `scripts/deploy-supabase.ps1` — Automatiza `supabase link`, `db push`, upload de segredos e deploy das 4 Edge Functions no projeto Supabase.

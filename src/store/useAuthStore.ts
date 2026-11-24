@@ -10,6 +10,7 @@ import {
   signUpWithEmailPassword,
   updateProfileSettings,
 } from '@/services/authService';
+import { syncDevicePushToken } from '@/services/pushTokenService';
 import type {
   HouseholdInvite,
   PartnerSummary,
@@ -85,6 +86,7 @@ export const useAuthStore = create<AuthStoreState>((set, get) => ({
         if (profile) {
           persistLocalProfile(profile);
           set({ profile, partner, initialized: true, loading: false });
+          void syncDevicePushToken(profile.id);
         } else {
           set({ initialized: true, loading: false });
         }
@@ -94,6 +96,7 @@ export const useAuthStore = create<AuthStoreState>((set, get) => ({
           if (next.profile) {
             persistLocalProfile(next.profile);
             set({ profile: next.profile, partner: next.partner });
+            void syncDevicePushToken(next.profile.id);
           }
         });
         return;
@@ -126,6 +129,7 @@ export const useAuthStore = create<AuthStoreState>((set, get) => ({
       if (profile) {
         persistLocalProfile(profile);
         set({ profile, partner });
+        void syncDevicePushToken(profile.id);
       }
       set({ loading: false });
     } catch (err) {
@@ -145,6 +149,7 @@ export const useAuthStore = create<AuthStoreState>((set, get) => ({
       if (profile) {
         persistLocalProfile(profile);
         set({ profile, partner });
+        void syncDevicePushToken(profile.id);
       }
       set({ loading: false });
     } catch (err) {

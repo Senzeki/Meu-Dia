@@ -193,3 +193,48 @@ export function subscribeNotificationActions(
     removeNativeListener?.();
   };
 }
+
+export async function getDeviceFcmToken(): Promise<string | null> {
+  const runtime = getPlatformRuntimeInfo();
+  if (!runtime.is_android) return null;
+
+  try {
+    const res = await MeuDiaNative.getFcmToken();
+    return res.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function subscribeFcmTokenRefresh(
+  listener: (token: string) => void,
+): () => void {
+  const runtime = getPlatformRuntimeInfo();
+  if (!runtime.is_android) {
+    return () => undefined;
+  }
+
+  let disposed = false;
+  let removeNativeListener: (() => void) | null = null;
+
+  void MeuDiaNative.addListener('fcmTokenUpdated', (payload) => {
+    if (!disposed && payload?.token) {
+      listener(payload.token);
+    }
+  })
+    .then((handle) => {
+      if (disposed) {
+        void handle.remove();
+      } else {
+        removeNativeListener = () => {
+          void handle.remove();
+        };
+      }
+    })
+    .catch(() => undefined);
+
+  return () => {
+    disposed = true;
+    removeNativeListener?.();
+  };
+}

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { resetLocalDbForTests } from '@/lib/db/localDb';
-import { emitIncomingShare, platformAdapter } from '@/lib/platform';
+import { emitIncomingShare, getDeviceFcmToken, platformAdapter } from '@/lib/platform';
 import { useDataStore } from '@/store/useDataStore';
 import { useUiStore } from '@/store/useUiStore';
 import type { SharedIncomingPayload } from '@/types';
@@ -94,5 +94,6 @@ describe('Notificações, Modo Ligação, Deep Link e Fallback Web (Fase 4)', ()
 
     expect(received).toHaveLength(1);
     expect(received[0].url).toBe('https://youtu.be/exemplo123');
+    await expect(getDeviceFcmToken()).resolves.toBeNull();
   });
 });

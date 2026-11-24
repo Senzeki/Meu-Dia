@@ -39,6 +39,7 @@ export interface MeuDiaNativePluginContract {
   consumePendingNotificationAction(): Promise<{
     payload: NotificationActionPayload | null;
   }>;
+  getFcmToken(): Promise<{ token: string | null }>;
   addListener(
     eventName: 'shareReceived',
     listenerFunc: (payload: NativeShareEventPayload) => void,
@@ -46,6 +47,10 @@ export interface MeuDiaNativePluginContract {
   addListener(
     eventName: 'notificationAction',
     listenerFunc: (payload: NotificationActionPayload) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: 'fcmTokenUpdated',
+    listenerFunc: (payload: { token: string }) => void,
   ): Promise<PluginListenerHandle>;
 }
 
