@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prévia v4 — Visão Completa</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    :root {
+      --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+      --dur-fast: 180ms;
+      --dur-med: 280ms;
+    }
+
+    .shell-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+    }
+    .item-surface {
+      background: color-mix(in srgb, var(--secondary) 42%, var(--card));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+    }
+
+    /* Chat estilo WhatsApp */
+    .bubble-me {
+      background: var(--primary);
+      color: var(--primary-foreground);
+      border-radius: 18px 18px 4px 18px;
+    }
+    .bubble-assistant {
+      background: color-mix(in srgb, var(--secondary) 72%, var(--card));
+      color: var(--foreground);
+      border: 1px solid var(--border);
+      border-radius: 18px 18px 18px 4px;
+    }
+
+    /* Accordion nativo (modern-web-guidance: accordion) */
+    details.calm-details > summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    details.calm-details > summary::-webkit-details-marker { display: none; }
+    details.calm-details .chev { transition: transform var(--dur-fast) var(--ease-out); }
+    details.calm-details[open] .chev { transform: rotate(180deg); }
+    details.calm-details::details-content {
+      interpolate-size: allow-keywords;
+      overflow: clip;
+      contain: layout;
+    }
+    details.calm-details:not([open])::details-content { block-size: 0; }
+    @media (prefers-reduced-motion: no-preference) {
+      details.calm-details::details-content {
+        transition: block-size var(--dur-med) var(--ease-out), content-visibility var(--dur-med) allow-discrete;
+      }
+    }
+
+    /* Barra de navegação compacta (<12% viewport) */
+    .nav-pill-btn[aria-selected="true"] {
+      color: var(--primary);
+      background: color-mix(in srgb, var(--primary) 13%, transparent);
+    }
+
+    /* Banner simulado de Push Notification (entra de cima como no Android) */
+    .push-banner {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-20px) scale(0.97);
+      transition: opacity 260ms var(--ease-out), transform 260ms var(--ease-out);
+    }
+    .push-banner.is-visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0) scale(1);
+    }
+
+    /* Modal nativo (modern-web-guidance: dialog) */
+    dialog:modal {
+      overscroll-behavior: contain;
+      background: transparent;
+      border: 0;
+      padding: 16px;
+      max-width: 440px;
+      width: 100%;
+      margin: auto;
+      color: var(--foreground);
+    }
+    dialog::backdrop {
+      background: color-mix(in srgb, var(--background) 80%, transparent);
+      backdrop-filter: blur(8px);
+      overflow: hidden;
+      overscroll-behavior: contain;
+    }
+    dialog[open] { display: block; }
+
+    .thin-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+    .thin-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition: none !important; animation: none !important; }
+    }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased m-0 p-3 sm:p-5">
+  <div class="max-w-6xl mx-auto space-y-4">
+
+    <!-- Controles externos da prévia -->
+    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-3 border-b border-[var(--border)]">
+      <div>
+        <h1 class="text-sm font-semibold">Prévia v4 — Tudo Fechado (Agenda · Casa · Notificação Push)</h1>
+        <p class="text-xs text-[var(--muted-foreground)]">Teste simular o Push no celular, trocar entre Você e Esposa, e navegar entre Hoje / Semana / Mês.</p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- Formato -->
+        <div class="inline-flex p-1 rounded-full bg-[var(--secondary)] border border-[var(--border)]" role="tablist" aria-label="Formato">
+          <button type="button" id="btn-dev-mobile" role="tab" aria-selected="true" onclick="setLayout('mobile')" class="px-3 py-1 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]">Celular</button>
+          <button type="button" id="btn-dev-pc" role="tab" aria-selected="false" onclick="setLayout('pc')" class="px-3 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]">PC (Dividido)</button>
+        </div>
+
+        <!-- Perfil -->
+        <div class="inline-flex p-1 rounded-full bg-[var(--secondary)] border border-[var(--border)]" role="tablist" aria-label="Perfil ativo">
+          <button type="button" id="btn-prof-me" role="tab" aria-selected="true" onclick="setProfile('me')" class="px-3 py-1 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]">Você</button>
+          <button type="button" id="btn-prof-wife" role="tab" aria-selected="false" onclick="setProfile('wife')" class="px-3 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]">Esposa</button>
+        </div>
+
+        <button type="button" onclick="triggerFakePush('moto')" class="px-3 py-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] text-xs font-medium hover:bg-[var(--secondary)]">
+          🔔 Simular Push (Mensagem)
+        </button>
+      </div>
+    </div>
+
+    <!-- MOLDURA DO APP -->
+    <div id="app-shell" class="mx-auto max-w-[420px] transition-all duration-300 relative">
+
+      <!-- SIMULAÇÃO DE PUSH NOTIFICATION NO CELULAR (Toque para abrir direto na mensagem) -->
+      <div id="push-banner" class="push-banner absolute top-3 left-3 right-3 z-40">
+        <button type="button" onclick="openPushMessage()" class="w-full text-left p-3.5 rounded-2xl bg-[var(--foreground)] text-[var(--background)] shadow-2xl border border-[var(--border)] flex items-start gap-3">
+          <div class="h-9 w-9 rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center text-xs font-bold shrink-0">
+            A
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center justify-between gap-2">
+              <span id="push-sender" class="text-xs font-semibold">Assistente • agora</span>
+              <span class="text-xs opacity-75">Toque para abrir</span>
+            </div>
+            <p id="push-body" class="text-xs opacity-90 mt-0.5 line-clamp-2">...</p>
+          </div>
+        </button>
+      </div>
+
+      <div class="shell-card overflow-hidden flex flex-col" style="height: 690px;">
+
+        <!-- Topbar compacta -->
+        <header class="px-4 sm:px-5 py-3 border-b border-[var(--border)] flex items-center justify-between gap-2 shrink-0">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <div id="avatar-badge" class="h-8 w-8 rounded-full bg-[var(--primary)]/15 text-[var(--primary)] flex items-center justify-center text-xs font-bold shrink-0">V</div>
+            <div class="min-w-0">
+              <p class="text-sm font-semibold leading-tight truncate" id="header-title">Conversa</p>
+              <p class="text-xs text-[var(--muted-foreground)] leading-tight truncate" id="header-sub">Seu espaço • Seg, 23 Nov</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-1.5 shrink-0">
+            <!-- No PC, seletor do painel esquerdo -->
+            <div id="pc-panel-switcher" class="hidden items-center gap-1 bg-[var(--secondary)] p-1 rounded-full border border-[var(--border)]">
+              <button type="button" data-pc-tab="agenda" onclick="setActiveTab('agenda')" class="px-2.5 py-1 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]">Agenda</button>
+              <button type="button" data-pc-tab="casa" onclick="setActiveTab('casa')" class="px-2.5 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]">Casa</button>
+              <button type="button" data-pc-tab="cuidados" onclick="setActiveTab('cuidados')" class="px-2.5 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]">Cuidados</button>
+              <button type="button" data-pc-tab="guardados" onclick="setActiveTab('guardados')" class="px-2.5 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]">Guardados</button>
+            </div>
+
+            <button type="button" onclick="openSearchModal()" class="h-8 w-8 rounded-full border border-[var(--border)] flex items-center justify-center text-xs hover:bg-[var(--secondary)]" title="Busca global">
+              🔍
+            </button>
+            <button type="button" onclick="openPauseModal()" class="h-8 px-2.5 rounded-full border border-[var(--border)] text-xs font-medium hover:bg-[var(--secondary)]" title="Descansar sem telas">
+              🌿
+            </button>
+          </div>
+        </header>
+
+        <!-- CORPO PRINCIPAL -->
+        <div class="flex-1 min-h-0 flex">
+
+          <!-- COLUNA DE PAINEIS (Agenda / Casa / Cuidados / Guardados) -->
+          <section id="panels-column" class="hidden flex-1 min-h-0 overflow-y-auto thin-scroll p-4 sm:p-5">
+
+            <!-- 1. AGENDA (Hoje | Semana | Mês | Depois) -->
+            <div id="view-agenda" class="space-y-4">
+              <!-- Seletor temporal -->
+              <div class="inline-flex w-full sm:w-auto p-1 rounded-full bg-[var(--secondary)] border border-[var(--border)]" role="tablist" aria-label="Horizonte da agenda">
+                <button type="button" data-ag="hoje" role="tab" aria-selected="true" onclick="setAgendaRange('hoje')" class="flex-1 sm:flex-none px-3 py-1 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]">Hoje</button>
+                <button type="button" data-ag="semana" role="tab" aria-selected="false" onclick="setAgendaRange('semana')" class="flex-1 sm:flex-none px-3 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]">Semana</button>
+                <button type="button" data-ag="mes" role="tab" aria-selected="false" onclick="setAgendaRange('mes')" class="flex-1 sm:flex-none px-3 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]">Mês</button>
+                <button type="button" data-ag="depois" role="tab" aria-selected="false" onclick="setAgendaRange('depois')" class="flex-1 sm:flex-none px-3 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]">Depois</button>
+              </div>
+
+              <div id="agenda-content" class="space-y-4">
+                <!-- Renderizado via JS -->
+              </div>
+            </div>
+
+            <!-- 2. CASA (Compartilhado: Mural com horário + Tarefas da Casa) -->
+            <div id="view-casa" class="hidden space-y-5">
+              <div class="space-y-2.5">
+                <div class="flex items-center justify-between">
+                  <h2 class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Mural (com notificação na hora)</h2>
+                  <button type="button" onclick="triggerFakePush('mural')" class="text-xs text-[var(--link)] font-medium">Testar push dela</button>
+                </div>
+                <div id="casa-mural-list" class="space-y-2">
+                  <!-- JS -->
+                </div>
+              </div>
+
+              <div class="space-y-2.5">
+                <div class="flex items-center justify-between gap-2">
+                  <h2 class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Tarefas &amp; Rotinas da Casa</h2>
+                  <div class="inline-flex rounded-full border border-[var(--border)] bg-[var(--secondary)] p-0.5">
+                    <button type="button" data-cf="all" onclick="setCasaFilter('all')" class="px-2 py-0.5 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]">Tudo</button>
+                    <button type="button" data-cf="mine" onclick="setCasaFilter('mine')" class="px-2 py-0.5 rounded-full text-xs font-medium text-[var(--muted-foreground)]">Meu</button>
+                    <button type="button" data-cf="wife" onclick="setCasaFilter('wife')" class="px-2 py-0.5 rounded-full text-xs font-medium text-[var(--muted-foreground)]">Dela</button>
+                  </div>
+                </div>
+                <div id="casa-tasks-list" class="space-y-2">
+                  <!-- JS -->
+                </div>
+              </div>
+
+              <div class="item-surface p-3 flex items-center justify-between gap-3">
+                <div>
+                  <p class="text-xs font-semibold">🛒 Mercado continua no Rotinas de Casa</p>
+                  <p class="text-xs text-[var(--muted-foreground)] mt-0.5">Fale no chat "tá acabando X" para enviar direto pra lista.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. CUIDADOS (Bens, Garantias, Ciclos) -->
+            <div id="view-cuidados" class="hidden space-y-2.5">
+              <p class="text-xs text-[var(--muted-foreground)]">Toque em qualquer item para ver garantia, nota e histórico.</p>
+              <div id="assets-list" class="space-y-2.5">
+                <!-- JS -->
+              </div>
+            </div>
+
+            <!-- 4. GUARDADOS (Prints, Links, Trabalho) -->
+            <div id="view-guardados" class="hidden space-y-3">
+              <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
+                <button type="button" onclick="filterSaved('all')" class="saved-filter px-3 py-1 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]">Tudo</button>
+                <button type="button" onclick="filterSaved('Prints')" class="saved-filter px-3 py-1 rounded-full text-xs font-medium bg-[var(--secondary)] text-[var(--muted-foreground)]">Prints</button>
+                <button type="button" onclick="filterSaved('Links')" class="saved-filter px-3 py-1 rounded-full text-xs font-medium bg-[var(--secondary)] text-[var(--muted-foreground)]">Links</button>
+                <button type="button" onclick="filterSaved('Trabalho')" class="saved-filter px-3 py-1 rounded-full text-xs font-medium bg-[var(--secondary)] text-[var(--muted-foreground)]">Trabalho</button>
+              </div>
+              <div id="saved-list" class="space-y-2">
+                <!-- JS -->
+              </div>
+            </div>
+
+          </section>
+
+          <!-- COLUNA DO CHAT ESTILO WHATSAPP -->
+          <section id="chat-column" class="flex-1 min-h-0 flex flex-col bg-[var(--background)]/40">
+            <div id="chat-messages" class="flex-1 min-h-0 overflow-y-auto thin-scroll p-4 space-y-3">
+              <!-- JS -->
+            </div>
+
+            <div class="px-3 py-2 border-t border-[var(--border)] flex items-center gap-1.5 overflow-x-auto shrink-0">
+              <button type="button" onclick="sendChatText('34.500 a minha e 18.400 a dela')" class="shrink-0 text-xs px-2.5 py-1 rounded-full bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--secondary)]">Responder km</button>
+              <button type="button" onclick="sendChatText('Dia 05 do mês que vem tem consulta médica às 14h')" class="shrink-0 text-xs px-2.5 py-1 rounded-full bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--secondary)]">Compromisso mês que vem</button>
+              <button type="button" onclick="sendChatText('Aguardando orçamento do mecânico da moto')" class="shrink-0 text-xs px-2.5 py-1 rounded-full bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--secondary)]">Aguardando retorno</button>
+              <button type="button" onclick="sendChatText('Avisar esposa às 15:00: tirar roupa do varal')" class="shrink-0 text-xs px-2.5 py-1 rounded-full bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--secondary)]">Mural esposa</button>
+              <button type="button" onclick="sendChatText('Tá acabando o arroz')" class="shrink-0 text-xs px-2.5 py-1 rounded-full bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--secondary)]">Mercado</button>
+            </div>
+
+            <div class="p-3 border-t border-[var(--border)] bg-[var(--card)] flex items-center gap-2 shrink-0">
+              <button type="button" onclick="sendFakePrint()" class="h-9 w-9 rounded-full bg-[var(--secondary)] flex items-center justify-center text-sm hover:opacity-80 shrink-0" title="Print ou foto">🖼️</button>
+              <input id="chat-input" type="text" placeholder="Mensagem..." class="flex-1 min-w-0 bg-[var(--background)] border border-[var(--border)] rounded-full px-4 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--placeholder)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]" onkeydown="if(event.key==='Enter') handleChatSend()" />
+              <button type="button" onclick="sendChatText('Áudio: Trocar borracha da porta sábado')" class="h-9 w-9 rounded-full bg-[var(--secondary)] flex items-center justify-center text-sm hover:opacity-80 shrink-0" title="Áudio">🎙️</button>
+              <button type="button" onclick="handleChatSend()" class="h-9 px-3.5 rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] text-xs font-semibold shrink-0">Enviar</button>
+            </div>
+          </section>
+
+        </div>
+
+        <!-- BARRA INFERIOR MOBILE (5 botões limpos no alcance do polegar) -->
+        <nav id="mobile-bottom-nav" class="border-t border-[var(--border)] bg-[var(--card)] px-1.5 py-1.5 grid grid-cols-5 gap-1 shrink-0" role="tablist" aria-label="Navegação principal">
+          <button type="button" data-mob-tab="chat" aria-selected="true" onclick="setActiveTab('chat')" class="nav-pill-btn py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-xs font-medium">
+            <span class="text-sm leading-none">💬</span>
+            <span>Conversa</span>
+          </button>
+          <button type="button" data-mob-tab="agenda" aria-selected="false" onclick="setActiveTab('agenda')" class="nav-pill-btn py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-xs font-medium text-[var(--muted-foreground)]">
+            <span class="text-sm leading-none">📅</span>
+            <span>Agenda</span>
+          </button>
+          <button type="button" data-mob-tab="casa" aria-selected="false" onclick="setActiveTab('casa')" class="nav-pill-btn py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-xs font-medium text-[var(--muted-foreground)]">
+            <span class="text-sm leading-none">🏠</span>
+            <span>Casa</span>
+          </button>
+          <button type="button" data-mob-tab="cuidados" aria-selected="false" onclick="setActiveTab('cuidados')" class="nav-pill-btn py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-xs font-medium text-[var(--muted-foreground)]">
+            <span class="text-sm leading-none">🛠️</span>
+            <span>Cuidados</span>
+          </button>
+          <button type="button" data-mob-tab="guardados" aria-selected="false" onclick="setActiveTab('guardados')" class="nav-pill-btn py-1.5 rounded-xl flex flex-col items-center gap-0.5 text-xs font-medium text-[var(--muted-foreground)]">
+            <span class="text-sm leading-none">🗂️</span>
+            <span>Guardados</span>
+          </button>
+        </nav>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Modal Busca Global -->
+  <dialog id="search-modal" closedby="any" aria-labelledby="search-modal-title">
+    <div class="shell-card p-5 space-y-3 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <h2 id="search-modal-title" class="text-sm font-semibold">Busca rápida em tudo</h2>
+        <button type="button" onclick="closeDialog('search-modal')" class="text-xs text-[var(--muted-foreground)] px-2 py-1">✕</button>
+      </div>
+      <input id="global-search-input" type="text" placeholder="Ex: ar condicionado, moto, arroz, github..." oninput="runGlobalSearch(this.value)" class="w-full px-3.5 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]" />
+      <div id="global-search-results" class="max-h-60 overflow-y-auto thin-scroll space-y-2 text-xs">
+        <p class="text-[var(--muted-foreground)] py-2">Digite algo para procurar em Agenda, Casa, Cuidados, Guardados e Conversa.</p>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal Pausa Mental -->
+  <dialog id="pause-modal" closedby="any" aria-labelledby="pause-modal-title">
+    <div class="shell-card p-6 text-center space-y-4 shadow-2xl">
+      <div class="mx-auto h-16 w-16 rounded-full bg-[var(--primary)]/15 flex items-center justify-center text-2xl">🌿</div>
+      <div class="space-y-1.5">
+        <h2 id="pause-modal-title" class="text-base font-semibold">Momento de descanso</h2>
+        <p class="text-xs text-[var(--muted-foreground)] leading-relaxed">
+          Sem lista e sem nada para resolver agora. Largue o celular por 20 minutos e deixe a cabeça respirar.
+        </p>
+      </div>
+      <button type="button" onclick="closeDialog('pause-modal')" class="px-4 py-2 rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] text-xs font-semibold">
+        Fechar e descansar
+      </button>
+    </div>
+  </dialog>
+
+  <script>
+    let layoutMode = 'mobile';
+    let activeTab = 'chat';
+    let agendaRange = 'hoje';
+    let casaFilter = 'all';
+    let savedFilter = 'all';
+    let activeProfile = 'me'; // 'me' | 'wife'
+    let lastPushType = 'moto';
+    let pushTimer = null;
+
+    const profiles = {
+      me: {
+        initial: 'V',
+        sub: 'Seu espaço • Seg, 23 Nov',
+        today: [
+          { id: 1, title: 'Ver revisão e óleo da moto', tag: 'Pessoal', done: false },
+          { id: 2, title: 'Separar links do projeto no PC à noite', tag: 'PC', done: false }
+        ],
+        waiting: [
+          { id: 10, title: 'Aguardando orçamento do mecânico da moto', remind: 'Lembrar em 2 dias' }
+        ],
+        week: [
+          { day: 'Quarta, 25 Nov', items: ['Passar na ferragem comprar luminária', 'Pausa sem celular às 21:00'] },
+          { day: 'Sábado, 28 Nov (Fim de semana)', items: ['Cortar a grama do quintal (~15 dias)', 'Limpar filtro do ar-condicionado', 'Ver filme salvo no Passatempos'] }
+        ],
+        month: [
+          { date: '05 Dez', title: 'Consulta médica às 14:00' },
+          { date: '18 Dez', title: 'Troca de relação / revisão geral da moto' },
+          { date: 'Ago/2027', title: 'Licenciamento anual da moto' },
+          { date: 'Nov/2027', title: 'Fim da garantia de 1 ano do Ar-condicionado' }
+        ],
+        later: [
+          { title: 'Trocar o piso da área de serviço quando sobrar orçamento' },
+          { title: 'Pesquisar curso rápido de acabamento fino' }
+        ],
+        saved: [
+          { id: 1, cat: 'Prints', title: 'Print: Receita de frango rápido na AirFryer', time: 'Ontem' },
+          { id: 2, cat: 'Links', title: 'GitHub: Player YouTube sem anúncios (p/ painel)', time: 'Ontem' },
+          { id: 3, cat: 'Trabalho', title: 'Anotação de obra: medida da viga e fornecedor', time: 'Hoje 12:15' }
+        ],
+        messages: [
+          { id: 1, sender: 'day', text: 'Ontem' },
+          { id: 2, sender: 'me', text: 'https://github.com/exemplo/youtube-sem-anuncio — guardar pra referência', time: '20:41' },
+          { id: 3, sender: 'assistant', text: 'Guardado em Links.', time: '20:41', canFix: true },
+          { id: 4, sender: 'day', text: 'Hoje' },
+          { id: 5, sender: 'assistant', text: 'Passou 1 semana — quantos km estão a sua moto e a da sua esposa hoje?', time: '08:00', linkLabel: 'Abrir Cuidados', linkTab: 'cuidados', quickReplies: ['34.500 a minha e 18.400 a dela'] }
+        ]
+      },
+      wife: {
+        initial: 'E',
+        sub: 'Espaço dela • Seg, 23 Nov',
+        today: [
+          { id: 201, title: 'Confirmar horário da consulta de sexta', tag: 'Pessoal', done: false }
+        ],
+        waiting: [],
+        week: [
+          { day: 'Quinta, 26 Nov', items: ['Resolver pendência do banco'] },
+          { day: 'Sábado, 28 Nov', items: ['Organizar armário da cozinha juntos'] }
+        ],
+        month: [
+          { date: '05 Dez', title: 'Consulta compartilhada' },
+          { date: 'Nov/2027', title: 'Fim da garantia do Ar-condicionado (compartilhado)' }
+        ],
+        later: [
+          { title: 'Ver cortina nova para o quarto' }
+        ],
+        saved: [
+          { id: 301, cat: 'Prints', title: 'Print: Ideia de organização da lavanderia', time: 'Hoje' }
+        ],
+        messages: [
+          { id: 401, sender: 'day', text: 'Hoje' },
+          { id: 402, sender: 'assistant', text: 'Você deixou um recado no Mural dela para às 15:00: "Estender a roupa do varal".', time: '15:00', linkLabel: 'Abrir Mural da Casa', linkTab: 'casa' }
+        ]
+      }
+    };
+
+    const shared = {
+      mural: [
+        { id: 1, from: 'Você → Esposa', text: 'Estender a roupa do varal', time: '15:00' },
+        { id: 2, from: 'Esposa → Você', text: 'Comprar lâmpada forte pro banheiro', time: '18:00' }
+      ],
+      casaTasks: [
+        { id: 1, title: 'Trocar luminária do banheiro', owner: 'mine', ownerLabel: 'Você', done: false },
+        { id: 2, title: 'Tirar roupa do varal antes de sair', owner: 'wife', ownerLabel: 'Esposa', done: false },
+        { id: 3, title: 'Organizar área de serviço no sábado', owner: 'both', ownerLabel: 'Os dois', done: false }
+      ],
+      assets: [
+        {
+          id: 'ac',
+          title: 'Ar-condicionado da Sala (Compartilhado)',
+          summary: 'Limpar filtro em 8 dias • Garantia até 23/11/2027',
+          badge: 'Em dia',
+          details: ['Compra: 23/11/2026 • Garantia de 1 ano', 'Filtro a cada 2 meses • Técnico 1x/ano', 'Nota fiscal anexada']
+        },
+        {
+          id: 'moto-me',
+          title: 'Minha Moto',
+          summary: '34.200 km • Faltam 300 km pro óleo',
+          badge: 'Perto',
+          details: ['Próximo óleo: 34.500 km', 'Revisão geral: 36.000 km', 'Licenciamento: Agosto']
+        },
+        {
+          id: 'moto-wife',
+          title: 'Moto da Esposa (Compartilhado)',
+          summary: '18.100 km • Faltam 400 km pro óleo',
+          badge: 'Em dia',
+          details: ['Próximo óleo: 18.500 km', 'Freios checados há 2 meses']
+        },
+        {
+          id: 'grama',
+          title: 'Quintal — Cortar a grama',
+          summary: 'A cada ~15 dias • Última vez há 13 dias',
+          badge: 'Logo',
+          details: ['Reinicia quando você marcar como feito']
+        }
+      ]
+    };
+
+    function getCurrentProfile() {
+      return profiles[activeProfile];
+    }
+
+    function setProfile(p) {
+      activeProfile = p;
+      document.getElementById('btn-prof-me').className = p === 'me' ? 'px-3 py-1 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]' : 'px-3 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]';
+      document.getElementById('btn-prof-wife').className = p === 'wife' ? 'px-3 py-1 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]' : 'px-3 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]';
+      document.getElementById('avatar-badge').textContent = getCurrentProfile().initial;
+      document.getElementById('header-sub').textContent = getCurrentProfile().sub;
+      renderAll();
+    }
+
+    function setLayout(mode) {
+      layoutMode = mode;
+      const shell = document.getElementById('app-shell');
+      const panelsCol = document.getElementById('panels-column');
+      const chatCol = document.getElementById('chat-column');
+      const mobNav = document.getElementById('mobile-bottom-nav');
+      const pcSw = document.getElementById('pc-panel-switcher');
+      const bMob = document.getElementById('btn-dev-mobile');
+      const bPc = document.getElementById('btn-dev-pc');
+
+      if (mode === 'mobile') {
+        shell.className = 'mx-auto max-w-[420px] transition-all duration-300 relative';
+        mobNav.classList.remove('hidden');
+        pcSw.classList.add('hidden');
+        pcSw.classList.remove('inline-flex');
+        chatCol.classList.remove('lg:w-[44%]', 'lg:flex-none', 'lg:border-l', 'lg:border-[var(--border)]');
+        bMob.className = 'px-3 py-1 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]';
+        bPc.className = 'px-3 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]';
+        setActiveTab(activeTab);
+      } else {
+        shell.className = 'mx-auto max-w-6xl transition-all duration-300 relative';
+        mobNav.classList.add('hidden');
+        pcSw.classList.remove('hidden');
+        pcSw.classList.add('inline-flex');
+        panelsCol.classList.remove('hidden');
+        chatCol.classList.remove('hidden');
+        chatCol.classList.add('lg:w-[44%]', 'lg:flex-none', 'lg:border-l', 'lg:border-[var(--border)]');
+        bPc.className = 'px-3 py-1 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]';
+        bMob.className = 'px-3 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]';
+        if (activeTab === 'chat') activeTab = 'agenda';
+        setActiveTab(activeTab);
+      }
+    }
+
+    function setActiveTab(tab) {
+      activeTab = tab;
+      const panelsCol = document.getElementById('panels-column');
+      const chatCol = document.getElementById('chat-column');
+      const names = { chat: 'Conversa', agenda: 'Agenda', casa: 'Casa', cuidados: 'Cuidados', guardados: 'Guardados' };
+      document.getElementById('header-title').textContent = layoutMode === 'pc' ? `${names[tab] || 'Agenda'} + Conversa` : names[tab];
+
+      if (layoutMode === 'mobile') {
+        chatCol.classList.toggle('hidden', tab !== 'chat');
+        panelsCol.classList.toggle('hidden', tab === 'chat');
+      } else {
+        chatCol.classList.remove('hidden');
+        panelsCol.classList.remove('hidden');
+      }
+
+      ['agenda', 'casa', 'cuidados', 'guardados'].forEach(v => {
+        const show = (tab === v) || (layoutMode === 'pc' && tab === 'chat' && v === 'agenda');
+        document.getElementById(`view-${v}`).classList.toggle('hidden', !show);
+      });
+
+      document.querySelectorAll('[data-mob-tab]').forEach(btn => {
+        const sel = btn.dataset.mobTab === tab;
+        btn.setAttribute('aria-selected', sel ? 'true' : 'false');
+        btn.classList.toggle('text-[var(--muted-foreground)]', !sel);
+      });
+
+      document.querySelectorAll('[data-pc-tab]').forEach(btn => {
+        const sel = btn.dataset.pcTab === (tab === 'chat' ? 'agenda' : tab);
+        btn.className = sel
+          ? 'px-2.5 py-1 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]'
+          : 'px-2.5 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]';
+      });
+    }
+
+    function setAgendaRange(range) {
+      agendaRange = range;
+      document.querySelectorAll('[data-ag]').forEach(btn => {
+        const sel = btn.dataset.ag === range;
+        btn.setAttribute('aria-selected', sel ? 'true' : 'false');
+        btn.className = sel
+          ? 'flex-1 sm:flex-none px-3 py-1 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]'
+          : 'flex-1 sm:flex-none px-3 py-1 rounded-full text-xs font-medium text-[var(--muted-foreground)]';
+      });
+      renderAgenda();
+    }
+
+    function renderAgenda() {
+      const p = getCurrentProfile();
+      const container = document.getElementById('agenda-content');
+
+      if (agendaRange === 'hoje') {
+        container.innerHTML = `
+          <div class="space-y-2">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Hoje</h3>
+            ${p.today.map(t => `
+              <label class="item-surface p-3 flex items-center justify-between gap-3 cursor-pointer">
+                <div class="flex items-center gap-3 min-w-0">
+                  <input type="checkbox" ${t.done ? 'checked' : ''} onchange="toggleToday(${t.id})" class="w-4 h-4 accent-[var(--primary)] rounded shrink-0" />
+                  <span class="text-sm truncate ${t.done ? 'line-through text-[var(--muted-foreground)]' : 'font-medium'}">${t.title}</span>
+                </div>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-[var(--background)] border border-[var(--border)] text-[var(--muted-foreground)] shrink-0">${t.tag}</span>
+              </label>
+            `).join('')}
+          </div>
+
+          ${p.waiting.length ? `
+            <div class="space-y-2">
+              <h3 class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Aguardando retorno</h3>
+              ${p.waiting.map(w => `
+                <div class="item-surface p-3 flex items-center justify-between gap-3">
+                  <span class="text-sm font-medium">${w.title}</span>
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-[var(--background)] border border-[var(--border)] text-[var(--muted-foreground)] shrink-0">${w.remind}</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+
+          <div class="item-surface p-3 flex items-center justify-between gap-3">
+            <div>
+              <p class="text-xs font-semibold">Pausas da semana</p>
+              <p class="text-xs text-[var(--muted-foreground)] mt-0.5">Ter, Qui, Sáb • 21:30 (20 min sem celular)</p>
+            </div>
+            <button type="button" onclick="openPauseModal()" class="px-3 py-1 rounded-full bg-[var(--background)] border border-[var(--border)] text-xs font-medium shrink-0">Descansar</button>
+          </div>
+        `;
+      } else if (agendaRange === 'semana') {
+        container.innerHTML = p.week.map(d => `
+          <div class="item-surface p-3.5 space-y-2">
+            <p class="text-xs font-semibold text-[var(--primary)]">${d.day}</p>
+            <ul class="space-y-1.5">
+              ${d.items.map(i => `<li class="text-sm">• ${i}</li>`).join('')}
+            </ul>
+          </div>
+        `).join('');
+      } else if (agendaRange === 'mes') {
+        const markedDays = [5, 18, 23, 28];
+        const daysHtml = Array.from({ length: 30 }, (_, idx) => {
+          const day = idx + 1;
+          const hasEvent = markedDays.includes(day);
+          const isToday = day === 23;
+          return `
+            <div class="h-8 rounded-lg flex flex-col items-center justify-center text-xs ${isToday ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold' : 'bg-[var(--background)] border border-[var(--border)]/60'}">
+              <span>${day}</span>
+              ${hasEvent && !isToday ? '<span class="h-1 w-1 rounded-full bg-[var(--primary)] mt-0.5"></span>' : ''}
+            </div>
+          `;
+        }).join('');
+
+        container.innerHTML = `
+          <div class="item-surface p-3.5 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold">Novembro / Dezembro 2026</span>
+              <span class="text-xs text-[var(--muted-foreground)]">Próximos eventos</span>
+            </div>
+            <div class="grid grid-cols-7 gap-1 text-center">${daysHtml}</div>
+          </div>
+          <div class="space-y-2">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Próximo mês e vencimentos</h3>
+            ${p.month.map(m => `
+              <div class="item-surface p-3 flex items-center justify-between gap-3">
+                <span class="text-sm font-medium">${m.title}</span>
+                <span class="text-xs px-2.5 py-0.5 rounded-full bg-[var(--background)] border border-[var(--border)] shrink-0">${m.date}</span>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } else {
+        container.innerHTML = `
+          <div class="space-y-2">
+            <p class="text-xs text-[var(--muted-foreground)]">Coisas sem data fixa — ficam quietas aqui para quando fizer sentido.</p>
+            ${p.later.map(l => `
+              <div class="item-surface p-3 text-sm font-medium">${l.title}</div>
+            `).join('')}
+          </div>
+        `;
+      }
+    }
+
+    function toggleToday(id) {
+      const item = getCurrentProfile().today.find(x => x.id === id);
+      if (item) item.done = !item.done;
+      renderAgenda();
+    }
+
+    function setCasaFilter(f) {
+      casaFilter = f;
+      document.querySelectorAll('[data-cf]').forEach(btn => {
+        const sel = btn.dataset.cf === f;
+        btn.className = sel
+          ? 'px-2 py-0.5 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]'
+          : 'px-2 py-0.5 rounded-full text-xs font-medium text-[var(--muted-foreground)]';
+      });
+      renderCasa();
+    }
+
+    function renderCasa() {
+      document.getElementById('casa-mural-list').innerHTML = shared.mural.map(m => `
+        <div class="item-surface p-3 flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <p class="text-xs text-[var(--muted-foreground)]">${m.from}</p>
+            <p class="text-sm font-medium truncate">${m.text}</p>
+          </div>
+          <span class="text-xs px-2.5 py-0.5 rounded-full bg-[var(--background)] border border-[var(--border)] shrink-0">🔔 ${m.time}</span>
+        </div>
+      `).join('');
+
+      const list = shared.casaTasks.filter(t => {
+        if (casaFilter === 'all') return true;
+        if (casaFilter === 'mine') return t.owner === 'mine' || t.owner === 'both';
+        return t.owner === 'wife' || t.owner === 'both';
+      });
+
+      document.getElementById('casa-tasks-list').innerHTML = list.map(t => `
+        <label class="item-surface p-3 flex items-center justify-between gap-3 cursor-pointer">
+          <div class="flex items-center gap-3 min-w-0">
+            <input type="checkbox" ${t.done ? 'checked' : ''} onchange="toggleCasaTask(${t.id})" class="w-4 h-4 accent-[var(--primary)] rounded shrink-0" />
+            <span class="text-sm truncate ${t.done ? 'line-through text-[var(--muted-foreground)]' : 'font-medium'}">${t.title}</span>
+          </div>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-[var(--background)] border border-[var(--border)] text-[var(--muted-foreground)] shrink-0">${t.ownerLabel}</span>
+        </label>
+      `).join('');
+    }
+
+    function toggleCasaTask(id) {
+      const t = shared.casaTasks.find(x => x.id === id);
+      if (t) t.done = !t.done;
+      renderCasa();
+    }
+
+    function renderAssets() {
+      document.getElementById('assets-list').innerHTML = shared.assets.map(a => `
+        <details class="calm-details item-surface p-3.5">
+          <summary>
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-semibold truncate">${a.title}</span>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-[var(--background)] border border-[var(--border)] text-[var(--muted-foreground)] shrink-0">${a.badge}</span>
+              </div>
+              <p class="text-xs text-[var(--muted-foreground)] mt-0.5">${a.summary}</p>
+            </div>
+            <span class="chev text-xs text-[var(--muted-foreground)] shrink-0">▾</span>
+          </summary>
+          <div class="pt-3 mt-3 border-t border-[var(--border)] space-y-1.5">
+            ${a.details.map(d => `<p class="text-xs text-[var(--muted-foreground)]">• ${d}</p>`).join('')}
+          </div>
+        </details>
+      `).join('');
+    }
+
+    function filterSaved(cat) {
+      savedFilter = cat;
+      document.querySelectorAll('.saved-filter').forEach(btn => {
+        const active = (cat === 'all' && btn.textContent === 'Tudo') || btn.textContent === cat;
+        btn.className = active
+          ? 'saved-filter px-3 py-1 rounded-full text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)]'
+          : 'saved-filter px-3 py-1 rounded-full text-xs font-medium bg-[var(--secondary)] text-[var(--muted-foreground)]';
+      });
+      renderSaved();
+    }
+
+    function renderSaved() {
+      const all = getCurrentProfile().saved;
+      const list = savedFilter === 'all' ? all : all.filter(s => s.cat === savedFilter);
+      document.getElementById('saved-list').innerHTML = list.map(s => `
+        <div class="item-surface p-3 flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <span class="text-xs font-medium text-[var(--primary)]">${s.cat}</span>
+            <p class="text-sm font-medium truncate">${s.title}</p>
+          </div>
+          <span class="text-xs text-[var(--muted-foreground)] shrink-0">${s.time}</span>
+        </div>
+      `).join('');
+    }
+
+    function renderChat() {
+      const msgs = getCurrentProfile().messages;
+      const box = document.getElementById('chat-messages');
+      box.innerHTML = msgs.map(m => {
+        if (m.sender === 'day') {
+          return `<div class="text-center"><span class="px-2.5 py-0.5 rounded-full bg-[var(--secondary)] text-xs text-[var(--muted-foreground)]">${m.text}</span></div>`;
+        }
+        const isMe = m.sender === 'me';
+        return `
+          <div class="flex ${isMe ? 'justify-end' : 'justify-start'}">
+            <div class="max-w-[85%] space-y-1.5">
+              <div class="${isMe ? 'bubble-me' : 'bubble-assistant'} px-3.5 py-2.5 text-sm leading-snug space-y-2">
+                <p>${m.text}</p>
+                ${(m.linkLabel || m.canFix) ? `
+                  <div class="flex flex-wrap gap-1.5 pt-0.5">
+                    ${m.linkLabel ? `
+                      <button type="button" onclick="jumpFromMessage('${m.linkTab}', '${m.linkSub || ''}')" class="px-2.5 py-1 rounded-full bg-[var(--background)] border border-[var(--border)] text-xs font-medium">
+                        ↗ ${m.linkLabel}
+                      </button>
+                    ` : ''}
+                    ${m.canFix ? `
+                      <button type="button" onclick="fixMessage(${m.id})" class="px-2.5 py-1 rounded-full bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--muted-foreground)]">
+                        Corrigir destino
+                      </button>
+                    ` : ''}
+                  </div>
+                ` : ''}
+                ${m.quickReplies ? `
+                  <div class="flex flex-wrap gap-1.5 pt-0.5">
+                    ${m.quickReplies.map(q => `
+                      <button type="button" onclick="sendChatText('${q}')" class="px-2.5 py-1 rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] text-xs font-medium">
+                        ${q}
+                      </button>
+                    `).join('')}
+                  </div>
+                ` : ''}
+              </div>
+              <p class="text-xs text-[var(--muted-foreground)] ${isMe ? 'text-right' : 'text-left'} px-1">${m.time}</p>
+            </div>
+          </div>
+        `;
+      }).join('');
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function jumpFromMessage(tab, sub) {
+      setActiveTab(tab);
+      if (tab === 'agenda' && sub) setAgendaRange(sub);
+    }
+
+    function fixMessage(id) {
+      const msg = getCurrentProfile().messages.find(m => m.id === id);
+      if (msg) {
+        msg.text = 'Movido para Agenda → Depois (corrigido).';
+        msg.canFix = false;
+        msg.linkLabel = 'Ver em Agenda';
+        msg.linkTab = 'agenda';
+        msg.linkSub = 'depois';
+        renderChat();
+      }
+    }
+
+    function nowTime() {
+      return new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function handleChatSend() {
+      const inp = document.getElementById('chat-input');
+      const text = inp.value.trim();
+      if (!text) return;
+      inp.value = '';
+      sendChatText(text);
+    }
+
+    function sendChatText(text) {
+      const p = getCurrentProfile();
+      p.messages.push({ id: Date.now(), sender: 'me', text, time: nowTime() });
+      const low = text.toLowerCase();
+
+      setTimeout(() => {
+        if (low.includes('34.500') || low.includes('km')) {
+          shared.assets[1].summary = '34.500 km • Hora da troca de óleo!';
+          shared.assets[1].badge = 'Atenção';
+          shared.assets[2].summary = '18.400 km • Faltam 100 km pro óleo';
+          renderAssets();
+          p.messages.push({
+            id: Date.now() + 1,
+            sender: 'assistant',
+            text: 'Atualizei as duas motos! A sua atingiu 34.500 km (troca de óleo).',
+            linkLabel: 'Ver em Cuidados',
+            linkTab: 'cuidados',
+            time: nowTime()
+          });
+        } else if (low.includes('mês que vem') || low.includes('consulta')) {
+          p.month.unshift({ date: '05 Dez', title: text });
+          renderAgenda();
+          p.messages.push({
+            id: Date.now() + 1,
+            sender: 'assistant',
+            text: 'Agendado para o próximo mês.',
+            linkLabel: 'Ver no Mês',
+            linkTab: 'agenda',
+            linkSub: 'mes',
+            canFix: true,
+            time: nowTime()
+          });
+        } else if (low.includes('aguardando')) {
+          p.waiting.unshift({ id: Date.now(), title: text, remind: 'Perguntar em 2 dias' });
+          renderAgenda();
+          p.messages.push({
+            id: Date.now() + 1,
+            sender: 'assistant',
+            text: 'Coloquei em "Aguardando retorno" e te pergunto em 2 dias.',
+            linkLabel: 'Abrir Agenda',
+            linkTab: 'agenda',
+            linkSub: 'hoje',
+            canFix: true,
+            time: nowTime()
+          });
+        } else if (low.includes('esposa')) {
+          shared.mural.unshift({ id: Date.now(), from: 'Você → Esposa', text: 'Tirar roupa do varal', time: '15:00' });
+          renderCasa();
+          p.messages.push({
+            id: Date.now() + 1,
+            sender: 'assistant',
+            text: 'Recado salvo no Mural! O celular dela vai receber uma mensagem às 15:00.',
+            linkLabel: 'Abrir Casa',
+            linkTab: 'casa',
+            time: nowTime()
+          });
+        } else if (low.includes('arroz')) {
+          p.messages.push({
+            id: Date.now() + 1,
+            sender: 'assistant',
+            text: '✓ Arroz enviado para a lista de mercado no Rotinas de Casa.',
+            canFix: true,
+            time: nowTime()
+          });
+        } else {
+          p.today.unshift({ id: Date.now(), title: text, tag: 'Hoje', done: false });
+          renderAgenda();
+          p.messages.push({
+            id: Date.now() + 1,
+            sender: 'assistant',
+            text: 'Anotado em Hoje.',
+            linkLabel: 'Ver tarefa',
+            linkTab: 'agenda',
+            linkSub: 'hoje',
+            canFix: true,
+            time: nowTime()
+          });
+        }
+        renderChat();
+      }, 200);
+
+      renderChat();
+    }
+
+    function sendFakePrint() {
+      const p = getCurrentProfile();
+      p.saved.unshift({ id: Date.now(), cat: 'Prints', title: 'Print enviado às ' + nowTime(), time: 'Agora' });
+      renderSaved();
+      p.messages.push({ id: Date.now(), sender: 'me', text: '🖼️ [Print anexado]', time: nowTime() });
+      p.messages.push({
+        id: Date.now() + 1,
+        sender: 'assistant',
+        text: 'Print salvo em Guardados.',
+        linkLabel: 'Ver Guardados',
+        linkTab: 'guardados',
+        time: nowTime()
+      });
+      renderChat();
+    }
+
+    // Simulação de Push Notification estilo WhatsApp -> abre mensagem -> link para tarefa
+    function triggerFakePush(type) {
+      lastPushType = type;
+      const banner = document.getElementById('push-banner');
+      const sender = document.getElementById('push-sender');
+      const body = document.getElementById('push-body');
+
+      if (type === 'mural') {
+        sender.textContent = 'Casa • Recado de Você';
+        body.textContent = '"Estender a roupa do varal" — agendado para agora (15:00)';
+      } else {
+        sender.textContent = 'Assistente • agora';
+        body.textContent = 'Passando para lembrar: faltam 300 km para trocar o óleo da sua moto. Já quer agendar?';
+      }
+
+      banner.classList.add('is-visible');
+      clearTimeout(pushTimer);
+      pushTimer = setTimeout(() => banner.classList.remove('is-visible'), 6500);
+    }
+
+    function openPushMessage() {
+      document.getElementById('push-banner').classList.remove('is-visible');
+      const p = getCurrentProfile();
+      if (lastPushType === 'mural') {
+        p.messages.push({
+          id: Date.now(),
+          sender: 'assistant',
+          text: 'Recado do Mural: "Estender a roupa do varal" (15:00).',
+          linkLabel: 'Ver tarefa da Casa',
+          linkTab: 'casa',
+          time: nowTime()
+        });
+      } else {
+        p.messages.push({
+          id: Date.now(),
+          sender: 'assistant',
+          text: 'Faltam cerca de 300 km para a troca de óleo da sua moto (34.200 / 34.500 km). Quer abrir o item?',
+          linkLabel: 'Ver em Cuidados',
+          linkTab: 'cuidados',
+          time: nowTime()
+        });
+      }
+      renderChat();
+      if (layoutMode === 'mobile') setActiveTab('chat');
+    }
+
+    function openSearchModal() {
+      document.getElementById('search-modal').showModal();
+      document.getElementById('global-search-input').focus();
+    }
+    function openPauseModal() {
+      document.getElementById('pause-modal').showModal();
+    }
+    function closeDialog(id) {
+      document.getElementById(id).close();
+    }
+
+    function runGlobalSearch(q) {
+      const box = document.getElementById('global-search-results');
+      const query = q.trim().toLowerCase();
+      if (!query) {
+        box.innerHTML = '<p class="text-[var(--muted-foreground)] py-2">Digite algo para procurar em tudo.</p>';
+        return;
+      }
+      const p = getCurrentProfile();
+      const hits = [
+        ...p.today.map(x => ({ area: 'Agenda (Hoje)', text: x.title })),
+        ...p.month.map(x => ({ area: `Agenda (${x.date})`, text: x.title })),
+        ...shared.casaTasks.map(x => ({ area: 'Casa', text: x.title })),
+        ...shared.assets.map(x => ({ area: 'Cuidados', text: `${x.title} — ${x.summary}` })),
+        ...p.saved.map(x => ({ area: `Guardados (${x.cat})`, text: x.title }))
+      ].filter(h => h.text.toLowerCase().includes(query));
+
+      box.innerHTML = hits.length
+        ? hits.map(h => `<div class="item-surface p-2.5"><span class="text-[var(--primary)] font-medium">${h.area}:</span> ${h.text}</div>`).join('')
+        : '<p class="text-[var(--muted-foreground)] py-2">Nada encontrado.</p>';
+    }
+
+    // Fallback light-dismiss
+    if (!('closedBy' in HTMLDialogElement.prototype)) {
+      const isOut = (e, dlg) => {
+        const r = dlg.getBoundingClientRect();
+        return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+      };
+      for (const dlg of document.querySelectorAll('dialog[closedby="any"]')) {
+        let downOut = false;
+        dlg.addEventListener('pointerdown', (e) => { downOut = isOut(e, dlg); });
+        dlg.addEventListener('pointerup', (e) => { if (downOut && isOut(e, dlg)) dlg.close(); });
+      }
+    }
+
+    function renderAll() {
+      renderAgenda();
+      renderCasa();
+      renderAssets();
+      renderSaved();
+      renderChat();
+    }
+
+    renderAll();
+    setLayout('mobile');
+  </script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+@import 'tailwindcss';
+@import './tokens.css';
+@import './motion.css';
+
+@theme {
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --color-bg: var(--bg);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-surface-4: var(--surface-4);
+  --color-track: var(--track);
+  --color-border-soft: var(--border-soft);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-dim: var(--text-dim);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-shared: var(--shared);
+  --color-shared-soft: var(--shared-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+  accent-color: var(--accent);
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Contraste >= 3:1 entre thumb e track, mantendo scrollbar-width: auto p/ acessibilidade */
+  scrollbar-color: rgba(255, 255, 255, 0.34) var(--surface-1);
+  scrollbar-width: auto;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background-color: var(--bg);
+  color: var(--text);
+  overflow-x: hidden;
+}
+
+::selection {
+  background-color: rgba(91, 140, 255, 0.32);
+  color: var(--text);
+}
+
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
+}
+
+button,
+[role='tab'] {
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+}
+
+/* Validação amigável apenas após interação real (:user-invalid) */
+input:not([type='range']):user-invalid,
+textarea:user-invalid,
+select:user-invalid {
+  border-color: var(--danger);
+}
+
+textarea {
+  resize: vertical;
+  field-sizing: content;
+}
+
+/* Superfícies utilitárias consistentes */
+.surface-shell {
+  background-color: var(--surface-1);
+  border: 1px solid var(--border);
+}
+
+.surface-card {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.surface-item {
+  background-color: var(--surface-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+
+/* Bolhas da Conversa */
+.chat-bubble-user {
+  background: linear-gradient(180deg, #6493ff 0%, #4e80f5 100%);
+  color: #060914;
+  border-radius: 18px 18px 4px 18px;
+}
+
+.chat-bubble-assistant {
+  background-color: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 18px 18px 18px 4px;
+}
+
+/* Native <dialog> modal com contenção de scroll sem travar <html>/<body> */
+dialog:modal {
+  overscroll-behavior: contain;
+  background: transparent;
+  border: 0;
+  padding: 16px;
+  max-width: 480px;
+  width: 100%;
+  margin: auto;
+  color: var(--text);
+}
+
+dialog::backdrop {
+  background-color: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+/* Accordion progressivo (transitions-dev 21-accordion) */
+.t-acc-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--acc-collapse) var(--acc-ease);
+}
+
+.t-acc-panel[data-open='true'] {
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--acc-expand) var(--acc-ease);
+}
+
+.t-acc-panel-inner {
+  overflow: hidden;
+}
+
+.t-acc-chevron {
+  transition: transform var(--acc-chevron) var(--acc-ease);
+}
+
+.t-acc-chevron[data-open='true'] {
+  transform: scaleY(-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
