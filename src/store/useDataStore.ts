@@ -24,14 +24,25 @@ import {
 } from '@/lib/domain/routineEngine';
 import { normalizeTextForSearch } from '@/lib/domain/textUtils';
 import { compressImageForUpload } from '@/lib/platform/media';
+import {
+  cancelLocalAlarm,
+  scheduleLocalAlarm,
+  subscribeNotificationActions,
+} from '@/lib/platform/notifications';
+import { subscribeShareTarget } from '@/lib/platform/shareTarget';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { getLocalDateString, resolveTimezone } from '@/lib/timezone';
+import { getLocalDateString, getLocalIsoNow, resolveTimezone } from '@/lib/timezone';
 import { createUuid } from '@/lib/uuid';
 import {
   MAX_AUDIO_DURATION_SECONDS,
   ingestWithAssistant,
 } from '@/services/assistantService';
 import { exportBackupFromLocalDb } from '@/services/backupService';
+import {
+  enqueuePassatemposCandidate,
+  searchPassatemposCandidates,
+  sendMarketItemToRotinas,
+} from '@/services/bridgeService';
 import { evaluateWeeklyCheckin } from '@/services/checkinService';
 import {
   buildPrivateMediaPath,
@@ -60,6 +71,8 @@ import type {
   LinkedEntityRef,
   MuralNote,
   MutationOperation,
+  NotificationActionPayload,
+  PassatemposSearchCandidate,
   StructuredAssistantAction,
   SyncBaseEntity,
   SyncTableName,
@@ -88,6 +101,33 @@ function getSafeObjectUrl(blob: Blob): string | null {
     return URL.createObjectURL(blob);
   }
   return null;
+}
+
+function getTimezoneOffsetSuffix(timezone: string): string {
+  const iso = getLocalIsoNow(new Date(), resolveTimezone(timezone));
+  const match = iso.match(/([+-]\d{2}:\d{2}|Z)$/);
+  return match ? match[1] : '-03:00';
+}
+
+function formatWallClockTime(date: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: resolveTimezone(timezone),
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const hh = parts.find((p) => p.type === 'hour')?.value ?? '09';
+  const mm = parts.find((p) => p.type === 'minute')?.value ?? '00';
+  return `${hh}:${mm}`;
+}
+
+function computeTaskScheduledIso(task: Task, timezone: string): string | null {
+  if (task.status === 'waiting' && task.waiting_remind_at) {
+    return task.waiting_remind_at;
+  }
+  if (!task.due_date) return null;
+  const hhmm = task.due_time || '09:00';
+  return `${task.due_date}T${hhmm}:00${getTimezoneOffsetSuffix(timezone)}`;
 }
 
 async function loadAllActiveFromDb() {
@@ -154,6 +194,73 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
       set((state) => ({
         syncStatus: { ...state.syncStatus, online: false, syncing: false },
       }));
+    });
+
+    subscribeNotificationActions((payload) => {
+      void get().handleNotificationAction(payload);
+    });
+
+    subscribeShareTarget((shared) => {
+      if (shared.kind === 'image' && shared.blob) {
+        void get().sendChatInput({
+          image_blob: shared.blob,
+          image_title: shared.title ?? undefined,
+          text: shared.text ?? undefined,
+        });
+      } else {
+        const composed = [shared.title, shared.url || shared.text]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        if (composed) {
+          void get().sendChatInput({ text: composed });
+        }
+      }
+    });
+  };
+
+  const syncTaskLocalAlarm = (task: Task) => {
+    const profile = useAuthStore.getState().profile;
+    if (
+      task.deleted_at ||
+      task.status === 'done' ||
+      task.status === 'archived' ||
+      !task.alarm_call_mode
+    ) {
+      void cancelLocalAlarm(task.id);
+      return;
+    }
+    if (task.scope !== 'personal') return;
+    const scheduledFor = computeTaskScheduledIso(task, profile.timezone);
+    if (!scheduledFor) return;
+    void scheduleLocalAlarm({
+      job_id: task.id,
+      title: 'Lembrete importante',
+      body: task.title,
+      scheduled_for: scheduledFor,
+      delivery_mode: 'call_alarm',
+      deep_link_message_id: task.source_message_id,
+    });
+  };
+
+  const syncMuralLocalAlarm = (note: MuralNote) => {
+    if (
+      note.deleted_at ||
+      note.status === 'acknowledged' ||
+      note.status === 'dismissed' ||
+      !note.alarm_call_mode ||
+      !note.notify_at
+    ) {
+      void cancelLocalAlarm(note.id);
+      return;
+    }
+    void scheduleLocalAlarm({
+      job_id: note.id,
+      title: 'Recado urgente no Mural',
+      body: note.body,
+      scheduled_for: note.notify_at,
+      delivery_mode: 'call_alarm',
+      deep_link_message_id: note.source_message_id,
     });
   };
 
@@ -437,25 +544,46 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
 
       if (action.kind === 'bridge_market_item') {
         const itemName = String(payload.item_name ?? action.summary ?? 'Mercado').trim();
+        const bridgeRes = await sendMarketItemToRotinas(itemName);
         appliedActions.push({
           ...action,
-          payload: { ...payload, item_name: itemName, source_message_id: sourceMessageId },
+          payload: {
+            ...payload,
+            item_name: itemName,
+            bridge_configured: bridgeRes.configured,
+            bridge_sent: bridgeRes.sent,
+            bridge_message: bridgeRes.message,
+            source_message_id: sourceMessageId,
+          },
         });
         linkedEntities.push({
           entity_type: 'external_market',
           entity_id: createUuid(),
           tab: 'casa',
-          label: `Mercado: ${itemName}`,
-          live_state: 'open',
+          label: bridgeRes.sent ? `Mercado enviado: ${itemName}` : `Mercado: ${itemName}`,
+          live_state: bridgeRes.sent ? 'done' : 'open',
           can_undo: false,
         });
         continue;
       }
 
       if (action.kind === 'bridge_passatempos_search') {
+        const query = String(payload.query ?? action.summary ?? '').trim();
+        let candidates = Array.isArray(payload.candidates)
+          ? (payload.candidates as PassatemposSearchCandidate[])
+          : [];
+        if (candidates.length === 0 && query) {
+          const searchRes = await searchPassatemposCandidates(query);
+          candidates = searchRes.candidates;
+        }
         appliedActions.push({
           ...action,
-          payload: { ...payload, source_message_id: sourceMessageId },
+          payload: {
+            ...payload,
+            query,
+            candidates: candidates.slice(0, 3),
+            source_message_id: sourceMessageId,
+          },
         });
         linkedEntities.push({
           entity_type: 'external_media',
@@ -1210,6 +1338,138 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
       return true;
     },
 
+    confirmPassatemposCandidate: async (messageId, candidate) => {
+      const message = get().messages.find((m) => m.id === messageId);
+      if (!message) return;
+
+      const result = await enqueuePassatemposCandidate(candidate);
+      const nowIso = new Date().toISOString();
+
+      const updatedActions = message.actions_payload.map((action) =>
+        action.kind === 'bridge_passatempos_search'
+          ? {
+              ...action,
+              payload: {
+                ...action.payload,
+                confirmed_external_id: candidate.external_id,
+                confirmed_title: candidate.title,
+                queued: result.queued,
+                configured: result.configured,
+              },
+            }
+          : action,
+      );
+
+      const updatedLinked: LinkedEntityRef[] = message.linked_entities.map((link) =>
+        link.entity_type === 'external_media'
+          ? {
+              ...link,
+              label: `${candidate.title} (Passatempos)`,
+              live_state: result.queued ? 'done' : 'open',
+            }
+          : link,
+      );
+
+      const updatedMsg: ChatMessage = {
+        ...message,
+        body: result.queued
+          ? `Enviado para o Passatempos: "${candidate.title}".`
+          : `${message.body}\n\n${result.message}`,
+        actions_payload: updatedActions,
+        linked_entities: updatedLinked,
+        updated_at: nowIso,
+        client_mutation_id: createUuid(),
+      };
+      await persistMessage(updatedMsg);
+    },
+
+    handleNotificationAction: async (payload: NotificationActionPayload) => {
+      const profile = useAuthStore.getState().profile;
+      const safeTz = resolveTimezone(profile.timezone);
+
+      if (payload.deep_link_message_id) {
+        useUiStore.getState().focusChatMessage(payload.deep_link_message_id);
+      }
+
+      if (payload.action === 'open') {
+        return;
+      }
+
+      if (!payload.entity_id) return;
+
+      if (payload.action === 'complete') {
+        if (payload.entity_type === 'mural_note') {
+          await get().acknowledgeMuralNote(payload.entity_id, 'acknowledged');
+        } else {
+          await get().setTaskStatus(payload.entity_id, 'done');
+        }
+        return;
+      }
+
+      if (payload.action === 'snooze_1h' || payload.action === 'snooze_10m') {
+        const deltaMs = payload.action === 'snooze_1h' ? 60 * 60 * 1000 : 10 * 60 * 1000;
+        const baseNowMs = Date.now();
+
+        if (payload.entity_type === 'mural_note') {
+          const note = get().muralNotes.find((n) => n.id === payload.entity_id);
+          if (!note) return;
+          const currentMs = note.notify_at ? Date.parse(note.notify_at) : baseNowMs;
+          const nextMs = Math.max(baseNowMs, Number.isNaN(currentMs) ? baseNowMs : currentMs) + deltaMs;
+          await get().saveMuralNote({
+            id: note.id,
+            body: note.body,
+            notify_at: new Date(nextMs).toISOString(),
+            alarm_call_mode: note.alarm_call_mode,
+          });
+          return;
+        }
+
+        const task = get().tasks.find((t) => t.id === payload.entity_id);
+        if (!task) return;
+
+        if (task.status === 'waiting') {
+          const currentMs = task.waiting_remind_at
+            ? Date.parse(task.waiting_remind_at)
+            : baseNowMs;
+          const nextMs =
+            Math.max(baseNowMs, Number.isNaN(currentMs) ? baseNowMs : currentMs) + deltaMs;
+          await get().saveTask({
+            id: task.id,
+            scope: task.scope,
+            title: task.title,
+            notes: task.notes,
+            horizon: task.horizon,
+            status: task.status,
+            assigned_to: task.assigned_to,
+            due_date: task.due_date,
+            due_time: task.due_time,
+            waiting_remind_at: new Date(nextMs).toISOString(),
+            alarm_call_mode: task.alarm_call_mode,
+          });
+          return;
+        }
+
+        const currentScheduledIso = computeTaskScheduledIso(task, safeTz);
+        const currentMs = currentScheduledIso ? Date.parse(currentScheduledIso) : baseNowMs;
+        const nextDateObj = new Date(
+          Math.max(baseNowMs, Number.isNaN(currentMs) ? baseNowMs : currentMs) + deltaMs,
+        );
+        await get().saveTask({
+          id: task.id,
+          scope: task.scope,
+          title: task.title,
+          notes: task.notes,
+          horizon: task.horizon,
+          status: task.status,
+          assigned_to: task.assigned_to,
+          due_date: getLocalDateString(nextDateObj, safeTz),
+          due_time: formatWallClockTime(nextDateObj, safeTz),
+          waiting_remind_at: task.waiting_remind_at,
+          alarm_call_mode: task.alarm_call_mode,
+        });
+      }
+    },
+
     undoOrRedirectMessageAction: async (messageId, target) => {
       const message = get().messages.find((m) => m.id === messageId);
       if (!message || message.linked_entities.length === 0) return;
@@ -1543,6 +1803,7 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
       };
 
       await persistAndQueue('tasks', 'upsert', task);
+      syncTaskLocalAlarm(task);
       set((state) => ({
         tasks: existing
           ? state.tasks.map((t) => (t.id === task.id ? task : t))
@@ -1564,6 +1825,7 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
         client_mutation_id: createUuid(),
       };
       await persistAndQueue('tasks', 'upsert', updated);
+      syncTaskLocalAlarm(updated);
       set((state) => ({
         tasks: state.tasks.map((t) => (t.id === taskId ? updated : t)),
       }));
@@ -1605,6 +1867,7 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
       }
 
       await persistAndQueue('tasks', 'upsert', updated);
+      syncTaskLocalAlarm(updated);
       set((state) => ({
         tasks: state.tasks.map((t) => (t.id === taskId ? updated : t)),
       }));
@@ -1622,6 +1885,7 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
         client_mutation_id: createUuid(),
       };
       await persistAndQueue('tasks', 'soft_delete', deleted);
+      syncTaskLocalAlarm(deleted);
       set((state) => ({
         tasks: state.tasks.filter((t) => t.id !== taskId),
       }));
@@ -1660,6 +1924,7 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
       };
 
       await persistAndQueue('mural_notes', 'upsert', note);
+      syncMuralLocalAlarm(note);
       set((state) => ({
         muralNotes: existing
           ? state.muralNotes.map((n) => (n.id === note.id ? note : n))
@@ -1679,6 +1944,7 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
         client_mutation_id: createUuid(),
       };
       await persistAndQueue('mural_notes', 'upsert', updated);
+      syncMuralLocalAlarm(updated);
       set((state) => ({
         muralNotes: state.muralNotes.map((n) => (n.id === noteId ? updated : n)),
       }));
@@ -1697,6 +1963,7 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
         client_mutation_id: createUuid(),
       };
       await persistAndQueue('mural_notes', 'soft_delete', deleted);
+      syncMuralLocalAlarm(deleted);
       set((state) => ({
         muralNotes: state.muralNotes.filter((n) => n.id !== noteId),
       }));
@@ -2329,8 +2596,5 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
       const profile = useAuthStore.getState().profile;
       return exportBackupFromLocalDb(profile);
     },
-
-    confirmPassatemposCandidate: async () => undefined,
-    handleNotificationAction: async () => undefined,
   };
 });

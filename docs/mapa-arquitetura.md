@@ -33,6 +33,7 @@
 - `src/types/notifications.ts` — `DevicePushToken`, `NotificationJob` (`push|call_alarm`) e `AndroidNotificationDiagnostics`.
 - `src/types/sync.ts` — Fila offline `OutboxMutation`, fila de upload `MediaUploadTask` e `BackupExportPayload`.
 - `src/types/platform.ts` — Contratos da camada de abstração Web vs. Capacitor (`PlatformAdapter`).
+- `src/types/bridges.ts` — Contratos das pontes opcionais (`Rotinas de Casa` e `Passatempos`) e ações de notificação (`NotificationActionPayload`).
 - `src/types/domain.ts` — Contrato completo de ações, entradas e seletores do `DataStoreContract` para integração `frontend-ui` + `backend-core`.
 - `src/types/index.ts` — Barrel export unificado dos contratos.
 
@@ -52,9 +53,10 @@
 - `src/lib/domain/routineEngine.ts` — Motor enxuto de rotinas da casa (`fixed_weekdays` e `cyclic_days`, histórico limitado a 10).
 - `src/lib/domain/localPredictor.ts` — Predição local instantânea O(1) para prints, URLs, km/horas, aguardando retorno e tarefas offline.
 - `src/lib/platform/runtime.ts` — Detecção segura de ambiente (`web` vs. `android` nativo Capacitor).
+- `src/lib/platform/nativePlugin.ts` — Registro tipado do plugin nativo Capacitor `MeuDiaNative`.
 - `src/lib/platform/haptics.ts` — Feedback tátil nativo no Android com fallback silencioso na Web.
-- `src/lib/platform/notifications.ts` — Diagnóstico de permissões, agendamento e cancelamento de alarmes locais com fallback Web.
-- `src/lib/platform/shareTarget.ts` — Barramento de eventos para recebimento do Android Share Target.
+- `src/lib/platform/notifications.ts` — Diagnóstico real de permissões Android, agendamento/cancelamento de alarmes exatos locais e fallback silencioso na Web.
+- `src/lib/platform/shareTarget.ts` — Barramento de eventos para recebimento do Android Share Target (links e prints).
 - `src/lib/platform/media.ts` — Redimensionamento e compressão client-side de fotos/prints para ~150 KB com prévia local imediata.
 - `src/lib/platform/index.ts` — Fachada `platformAdapter` consolidada.
 
@@ -65,6 +67,7 @@
 - `src/services/backupService.ts` — Geração do `BackupExportPayload` JSON com todos os dados textuais do usuário.
 - `src/services/assistantService.ts` — Orquestração híbrida Edge Function `assistant-ingest` (`local_iso_now` + `timezone`) com fallback resiliente para motor local / fila offline de áudio.
 - `src/services/checkinService.ts` — Check-in semanal proativo em `America/Sao_Paulo` para medidores sem leitura há >= 7 dias (respeitando pausas e sem duplicatas).
+- `src/services/bridgeService.ts` — Cliente desacoplado das pontes opcionais `bridge-rotinas` e `bridge-passatempos` com degradação graciosa.
 
 ## `src/store/` (Estado Global Zustand)
 - `src/store/useAuthStore.ts` — Sessão, perfil local/remoto, parceiro vinculado e gerenciamento de convites da Casa.
@@ -87,7 +90,8 @@
 - `src/components/guardados/VaultItemModal.tsx` — Criação/edição de `Prints` intactos (sem OCR), `Links`, `Estudos` e `Trabalho`.
 - `src/components/modals/GlobalSearchDialog.tsx` — Diálogo de busca global unificada (`Ctrl+K` / lupa) navegando direto para a área.
 - `src/components/modals/PauseDialog.tsx` — Configuração rápida e timer regressivo `mm:ss` do modo `Descansar` (15 / 20 / 30 min).
-- `src/components/settings/SettingsDialog.tsx` — Perfil, fuso `America/Sao_Paulo`, rotina de pausas, Auth 2 contas, pareamento 24h e Exportação JSON.
+- `src/components/settings/NotificationDiagnosticsCard.tsx` — Diagnóstico real em tempo real de notificações, alarmes exatos, tela cheia e bateria com atalhos diretos ao sistema Android e fallback limpo na Web.
+- `src/components/settings/SettingsDialog.tsx` — Perfil, fuso `America/Sao_Paulo`, rotina de pausas, Auth 2 contas, pareamento 24h, diagnóstico de notificações, integrações opcionais e Exportação JSON.
 
 ## `src/pages/` (Páginas das 5 Áreas)
 - `src/pages/ChatPane.tsx` — Painel da `Conversa` cronológica paginada (~50), envio de texto/links/fotos e rastreabilidade viva.
@@ -102,6 +106,20 @@
 - `supabase/migrations/0002_phase2_refinements.sql` — Migração de usuário solo ao resgatar convite do parceiro e limpeza automática de `invite_redeem_attempts` (> 24h).
 - `supabase/functions/assistant-ingest/modelRotation.ts` — Rotação sequencial de modelos Groq + fallback Gemini (`AbortController` 12s, fallback em 429/5xx/404/timeout/JSON inválido).
 - `supabase/functions/assistant-ingest/index.ts` — Edge Function autenticada por JWT com Whisper (descarte imediato de áudio), multi-intenção (`actions[]`), ambiguidade (`needs_clarification`) e fuso explícito `America/Sao_Paulo`.
+- `supabase/migrations/0003_phase4_notifications_and_cron.sql` — Triggers server-side (`SECURITY DEFINER`) para enfileiramento automático de `notification_jobs` em `America/Sao_Paulo` (tarefas, mural e garantias 30d antes às 09:00) e configuração `pg_cron`.
+- `supabase/functions/dispatch-notifications/index.ts` — Worker de push FCM HTTP v1 autenticado por `CRON_SECRET`/`service_role`, usando `claim_due_notification_jobs`, respeitando pausa ativa para `push` e mantendo `call_alarm` ativo.
+- `supabase/functions/bridge-rotinas/index.ts` — Ponte opcional autenticada por JWT atualizando/inserindo `produtos_armario` (`status = 'falta'`, `na_lista_mercado = true`).
+- `supabase/functions/bridge-passatempos/index.ts` — Ponte opcional autenticada por JWT consultando `/search` (até 3 candidatos confirmáveis) e gravando exclusivamente em `public.inbox` (nunca sobrescrevendo `user_data`).
+
+## `android/`, `scripts/` & `.github/` (Android Nativo, Build APK & Keep-Alive)
+- `android/app/src/main/AndroidManifest.xml` — Permissões (`POST_NOTIFICATIONS`, `SCHEDULE_EXACT_ALARM`, `USE_FULL_SCREEN_INTENT`, `RECEIVE_BOOT_COMPLETED`), Android Share Target (`ACTION_SEND` texto/imagem), `CallAlarmActivity` e receivers.
+- `android/app/src/main/java/com/meudia/app/MainActivity.java` — Registro de `MeuDiaNativePlugin`, tratamento de `ACTION_SEND` e `deep_link_message_id`.
+- `android/app/src/main/java/com/meudia/app/MeuDiaNativePlugin.java` — Diagnóstico real de permissões/bateria/alarmes/tela cheia, intents do sistema, `AlarmManager.setAlarmClock` e fila de eventos nativos.
+- `android/app/src/main/java/com/meudia/app/CallAlarmReceiver.java` — Deduplicação por `job_id` (5 min) e disparo de notificação `FullScreenIntent` no canal `meudia_call_alarm`.
+- `android/app/src/main/java/com/meudia/app/CallAlarmActivity.java` — Tela cheia sobre bloqueio com toque/vibração contínuos, botões **Atender** (deep link) e **Adiar 10 min**.
+- `android/app/src/main/java/com/meudia/app/NotificationActionReceiver.java` — Ações inline (`Adiar 1h`, `Concluir`, `Adiar 10 min`, `Abrir`).
+- `scripts/gerar-apk.ps1` — Script automatizado com autodetecção de JDK 21 / `ANDROID_HOME`, build Web, `npx cap sync android`, `gradlew.bat assembleDebug` e cópia em `dist-apk/MeuDia_v<Version>.apk`.
+- `.github/workflows/supabase-keep-alive.yml` — Workflow diário mantendo o projeto Supabase Free ativo.
 
 ## `tests/` (Suíte Automatizada Vitest)
 - `tests/setup.ts` — Setup global `@testing-library/jest-dom` e polyfill leve de `HTMLDialogElement` para `jsdom`.
@@ -118,3 +136,6 @@
 - `tests/phase3/compound-ambiguity-pause.test.ts` — Testes de textos compostos multi-intenção, ambiguidade (`needs_clarification`) e pedidos naturais de pausa em `America/Sao_Paulo`.
 - `tests/phase3/audio-and-checkin.test.ts` — Testes de fila offline de áudio com descarte pós-transcrição, edição de ruído de obra e check-in semanal sem duplicata.
 - `tests/phase3/security.test.ts` — Auditoria automatizada de JWT obrigatório na Edge Function e zero chaves/segredos no cliente.
+- `tests/phase4/notifications-and-platform.test.ts` — Testes de ações de notificação (`snooze_1h`, `snooze_10m`, `complete`, `open`) e fallback Web de diagnóstico/alarme/share target.
+- `tests/phase4/bridges.test.ts` — Testes das pontes opcionais desacopladas (`Rotinas de Casa` e `Passatempos` confirmável).
+- `tests/phase4/native-and-sql-security.test.ts` — Auditoria automatizada do `AndroidManifest.xml`, plugin nativo, `0003_phase4_notifications_and_cron.sql`, `dispatch-notifications` e Edge Functions de pontes.

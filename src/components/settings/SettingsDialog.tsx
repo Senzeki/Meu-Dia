@@ -3,13 +3,16 @@ import {
   Check,
   Copy,
   Download,
+  Film,
   Globe,
   Leaf,
   Link2,
   LogOut,
   ShieldCheck,
+  ShoppingCart,
   Users,
 } from 'lucide-react';
+import { NotificationDiagnosticsCard } from '@/components/settings/NotificationDiagnosticsCard';
 import { ModalDialog } from '@/components/ui/ModalDialog';
 import { triggerHaptic } from '@/lib/platform';
 import { DEFAULT_TIMEZONE, getLocalDateString } from '@/lib/timezone';
@@ -374,7 +377,44 @@ function SettingsDialogContent() {
         </div>
       </div>
 
-      {/* 3. Exportação / Backup JSON */}
+      {/* 3. Diagnóstico de Notificações (Web & Android) */}
+      <NotificationDiagnosticsCard />
+
+      {/* 4. Integrações opcionais desacopladas */}
+      <div className="pt-4 border-t border-border space-y-2.5">
+        <div>
+          <p className="text-xs font-semibold text-text-secondary">
+            Integrações opcionais
+          </p>
+          <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
+            O Meu Dia funciona completo de forma independente. Se preferir, pode enviar itens pela Conversa para seus outros aplicativos:
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className="p-3 surface-item flex items-start gap-2.5">
+            <ShoppingCart className="h-4 w-4 text-shared mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-text">Rotinas de Casa</p>
+              <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
+                Envia itens em falta direto para a lista de mercado quando você avisar na Conversa.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3 surface-item flex items-start gap-2.5">
+            <Film className="h-4 w-4 text-accent mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-text">Passatempos</p>
+              <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
+                Sugere filmes, séries ou jogos na bolha para você confirmar antes de guardar na fila.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 5. Exportação / Backup JSON */}
       <div className="pt-4 border-t border-border space-y-2.5">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -390,7 +430,7 @@ function SettingsDialogContent() {
             type="button"
             disabled={exporting}
             onClick={() => void handleExportBackup()}
-            className="min-h-[38px] px-3.5 rounded-full bg-surface-3 border border-border text-xs font-semibold text-text hover:bg-surface-4 inline-flex items-center gap-1.5 shrink-0 transition-colors"
+            className="min-h-[40px] px-3.5 rounded-full bg-surface-3 border border-border text-xs font-semibold text-text hover:bg-surface-4 inline-flex items-center gap-1.5 shrink-0 transition-colors"
           >
             <Download className="h-3.5 w-3.5 text-accent" />
             <span>Exportar dados (JSON)</span>
@@ -398,7 +438,7 @@ function SettingsDialogContent() {
         </div>
       </div>
 
-      {/* 4. Conta Supabase Cloud */}
+      {/* 6. Conta Supabase Cloud */}
       <div className="pt-4 border-t border-border space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs font-semibold text-text-secondary">

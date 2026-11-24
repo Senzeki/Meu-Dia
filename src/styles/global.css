@@ -145,6 +145,12 @@ textarea {
   border-radius: 18px 18px 18px 4px;
 }
 
+/* Destaque suave para deep link de notificação ou busca na Conversa */
+.chat-bubble-focused {
+  box-shadow: 0 0 0 2px var(--accent-ring), 0 0 24px rgba(91, 140, 255, 0.24);
+  transition: box-shadow var(--duration-medium) var(--ease-smooth-out);
+}
+
 /* Native <dialog> modal com contenção de scroll sem travar <html>/<body> */
 dialog:modal {
   overscroll-behavior: contain;

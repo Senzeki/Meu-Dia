@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   ArrowUpRight,
+  BookmarkPlus,
   Check,
   Edit3,
+  Film,
   Gauge,
   HelpCircle,
   Mic,
@@ -11,11 +13,17 @@ import {
 import { triggerHaptic } from '@/lib/platform';
 import { useDataStore } from '@/store/useDataStore';
 import { useUiStore } from '@/store/useUiStore';
-import type { ChatMessage, LinkedEntityRef, RedirectActionTarget } from '@/types';
+import type {
+  ChatMessage,
+  LinkedEntityRef,
+  PassatemposSearchCandidate,
+  RedirectActionTarget,
+} from '@/types';
 
 interface ChatBubbleProps {
   message: ChatMessage;
   formattedTime: string;
+  highlighted?: boolean;
 }
 
 const REDIRECT_OPTIONS: Array<{ label: string; target: RedirectActionTarget }> = [
@@ -27,7 +35,68 @@ const REDIRECT_OPTIONS: Array<{ label: string; target: RedirectActionTarget }> =
   { label: 'Guardar em Trabalho', target: { kind: 'move_to_vault', category: 'work' } },
 ];
 
-export function ChatBubble({ message, formattedTime }: ChatBubbleProps) {
+const PASSATEMPOS_KIND_LABELS: Record<string, string> = {
+  movie: 'Filme',
+  filme: 'Filme',
+  series: 'Série',
+  tv: 'Série',
+  serie: 'Série',
+  game: 'Jogo',
+  jogo: 'Jogo',
+  book: 'Livro',
+  livro: 'Livro',
+  anime: 'Anime',
+};
+
+function formatMediaKind(kind: string): string {
+  const key = kind.trim().toLowerCase();
+  return PASSATEMPOS_KIND_LABELS[key] || kind;
+}
+
+function extractPassatemposAction(message: ChatMessage): {
+  candidates: PassatemposSearchCandidate[];
+  confirmedExternalId: string | null;
+  confirmedTitle: string | null;
+} | null {
+  const action = message.actions_payload?.find(
+    (a) => a.kind === 'bridge_passatempos_search',
+  );
+  if (!action || !action.payload) return null;
+
+  const rawCandidates = action.payload.candidates;
+  if (!Array.isArray(rawCandidates) || rawCandidates.length === 0) {
+    return null;
+  }
+
+  const candidates = rawCandidates
+    .filter(
+      (c): c is PassatemposSearchCandidate =>
+        Boolean(c) &&
+        typeof c === 'object' &&
+        typeof (c as PassatemposSearchCandidate).external_id === 'string' &&
+        typeof (c as PassatemposSearchCandidate).title === 'string',
+    )
+    .slice(0, 3);
+
+  if (candidates.length === 0) return null;
+
+  const confirmedExternalId =
+    typeof action.payload.confirmed_external_id === 'string'
+      ? action.payload.confirmed_external_id
+      : null;
+  const confirmedTitle =
+    typeof action.payload.confirmed_title === 'string'
+      ? action.payload.confirmed_title
+      : null;
+
+  return { candidates, confirmedExternalId, confirmedTitle };
+}
+
+export function ChatBubble({
+  message,
+  formattedTime,
+  highlighted = false,
+}: ChatBubbleProps) {
   const navigateToArea = useUiStore((s) => s.navigateToArea);
   const getLinkedEntityLiveState = useDataStore((s) => s.getLinkedEntityLiveState);
   const undoOrRedirectMessageAction = useDataStore(
@@ -35,6 +104,9 @@ export function ChatBubble({ message, formattedTime }: ChatBubbleProps) {
   );
   const resolveClarification = useDataStore((s) => s.resolveClarification);
   const editAudioTranscript = useDataStore((s) => s.editAudioTranscript);
+  const confirmPassatemposCandidate = useDataStore(
+    (s) => s.confirmPassatemposCandidate,
+  );
   const localMediaUrls = useDataStore((s) => s.localMediaUrls);
   const resolveMediaUrl = useDataStore((s) => s.resolveMediaUrl);
 
@@ -52,6 +124,9 @@ export function ChatBubble({ message, formattedTime }: ChatBubbleProps) {
 
   const [editingTranscript, setEditingTranscript] = useState(false);
   const [transcriptDraft, setTranscriptDraft] = useState(message.body);
+  const [localConfirmedMediaId, setLocalConfirmedMediaId] = useState<
+    string | null
+  >(null);
 
   const directPreviewUrl =
     message.local_preview_url ||
@@ -128,6 +203,20 @@ export function ChatBubble({ message, formattedTime }: ChatBubbleProps) {
     }
   }
 
+  async function handleConfirmPassatempos(
+    candidate: PassatemposSearchCandidate,
+  ) {
+    if (busyAction) return;
+    setBusyAction(true);
+    try {
+      void triggerHaptic('success');
+      await confirmPassatemposCandidate(message.id, candidate);
+      setLocalConfirmedMediaId(candidate.external_id);
+    } finally {
+      setBusyAction(false);
+    }
+  }
+
   function renderLinkedEntity(ref: LinkedEntityRef) {
     const liveState = getLinkedEntityLiveState(ref.entity_type, ref.entity_id);
 
@@ -179,6 +268,20 @@ export function ChatBubble({ message, formattedTime }: ChatBubbleProps) {
   const isAudioTranscript = message.message_type === 'audio_transcript';
   const isCheckin = message.message_type === 'checkin';
   const clarification = message.clarification_payload;
+  const passatemposAction = extractPassatemposAction(message);
+
+  const confirmedMediaId =
+    passatemposAction?.confirmedExternalId ||
+    localConfirmedMediaId ||
+    (message.linked_entities?.some((r) => r.entity_type === 'external_media')
+      ? 'confirmed'
+      : null);
+
+  const confirmedMediaCandidate = passatemposAction?.candidates.find(
+    (c) => c.external_id === confirmedMediaId,
+  );
+  const confirmedMediaTitle =
+    passatemposAction?.confirmedTitle || confirmedMediaCandidate?.title || null;
 
   const hasUndoableRef = message.linked_entities?.some((ref) => {
     if (!ref.can_undo) return false;
@@ -197,7 +300,7 @@ export function ChatBubble({ message, formattedTime }: ChatBubbleProps) {
         <div
           className={`px-3.5 py-2.5 text-sm leading-relaxed space-y-2.5 ${
             isUser ? 'chat-bubble-user font-medium' : 'chat-bubble-assistant'
-          }`}
+          } ${highlighted ? 'chat-bubble-focused' : ''}`}
         >
           {/* Cabeçalho discreto para Check-in semanal */}
           {isCheckin ? (
@@ -313,9 +416,62 @@ export function ChatBubble({ message, formattedTime }: ChatBubbleProps) {
               ) : selectedClarificationOption ? (
                 <div className="inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1 rounded-full bg-surface-3 border border-border-soft text-xs text-text-secondary">
                   <Check className="h-3.5 w-3.5 text-success shrink-0" />
-                  <span>Escolha aplicada: {selectedClarificationOption.label}</span>
+                  <span>
+                    Escolha aplicada: {selectedClarificationOption.label}
+                  </span>
                 </div>
               ) : null}
+            </div>
+          ) : null}
+
+          {/* Opções confirmáveis do Passatempos (máx. 3 candidatos, nunca sobrescreve user_data) */}
+          {passatemposAction ? (
+            <div className="pt-1 space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-accent">
+                <Film className="h-3.5 w-3.5 shrink-0" />
+                <span>Passatempos</span>
+              </div>
+
+              {confirmedMediaId ? (
+                <div className="inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1 rounded-full bg-success-soft border border-success/30 text-xs font-medium text-success">
+                  <Check className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {confirmedMediaTitle
+                      ? `Guardado na fila: ${confirmedMediaTitle}`
+                      : 'Enviado para a fila do Passatempos'}
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {passatemposAction.candidates.map((candidate) => (
+                    <div
+                      key={candidate.external_id}
+                      className="p-2.5 rounded-xl bg-surface-3 border border-border-soft flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-text truncate">
+                          {candidate.title}
+                        </p>
+                        <p className="text-[11px] text-text-muted truncate">
+                          {formatMediaKind(candidate.kind)}
+                          {candidate.year ? ` • ${candidate.year}` : ''}
+                          {candidate.subtitle ? ` • ${candidate.subtitle}` : ''}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={busyAction}
+                        onClick={() => void handleConfirmPassatempos(candidate)}
+                        className="min-h-[40px] px-3.5 rounded-full bg-accent text-accent-foreground text-xs font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-accent-hover disabled:opacity-50 shrink-0 transition-colors"
+                      >
+                        <BookmarkPlus className="h-3.5 w-3.5 shrink-0" />
+                        <span>Guardar no Passatempos</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : null}
 

@@ -10,6 +10,7 @@ export function GlobalSearchDialog() {
   const open = useUiStore((s) => s.searchOpen);
   const setSearchOpen = useUiStore((s) => s.setSearchOpen);
   const navigateToArea = useUiStore((s) => s.navigateToArea);
+  const focusChatMessage = useUiStore((s) => s.focusChatMessage);
   const searchAll = useDataStore((s) => s.searchAll);
 
   // Subscribe to entity arrays so live results stay current
@@ -37,6 +38,9 @@ export function GlobalSearchDialog() {
     setQuery('');
     setSearchOpen(false);
     navigateToArea(hit.area, hit.agenda_horizon);
+    if (hit.area === 'chat') {
+      focusChatMessage(hit.id);
+    }
   }
 
   return (

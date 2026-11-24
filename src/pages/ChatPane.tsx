@@ -14,6 +14,7 @@ import { triggerHaptic } from '@/lib/platform';
 import { getLocalDateString, resolveTimezone } from '@/lib/timezone';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useDataStore } from '@/store/useDataStore';
+import { useUiStore } from '@/store/useUiStore';
 
 function formatMessageTime(iso: string, timezone: string): string {
   try {
@@ -36,6 +37,8 @@ function formatDayChip(dateStr: string, todayStr: string): string {
 
 export function ChatPane() {
   const profile = useAuthStore((s) => s.profile);
+  const focusedMessageId = useUiStore((s) => s.focusedMessageId);
+  const focusChatMessage = useUiStore((s) => s.focusChatMessage);
   const hydrated = useDataStore((s) => s.hydrated);
   const messages = useDataStore((s) => s.messages);
   const hasOlderMessages = useDataStore((s) => s.hasOlderMessages);
@@ -65,10 +68,28 @@ export function ChatPane() {
   const todayStr = getLocalDateString(new Date(), profile.timezone);
 
   useEffect(() => {
+    if (focusedMessageId) return;
     const el = listRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
+  }, [messages.length, focusedMessageId]);
+
+  useEffect(() => {
+    if (!focusedMessageId) return;
+    const container = listRef.current;
+    if (container) {
+      const targetEl = container.querySelector<HTMLElement>(
+        `[data-message-id="${focusedMessageId}"]`,
+      );
+      if (targetEl && typeof targetEl.scrollIntoView === 'function') {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+    const timer = window.setTimeout(() => {
+      focusChatMessage(null);
+    }, 2400);
+    return () => window.clearTimeout(timer);
+  }, [focusedMessageId, messages.length, focusChatMessage]);
 
   useEffect(() => {
     if (!hydrated || checkinCheckedRef.current) return;
@@ -253,7 +274,7 @@ export function ChatPane() {
           const showDayHeader = msgDay !== prevDay;
 
           return (
-            <div key={msg.id} className="space-y-3">
+            <div key={msg.id} data-message-id={msg.id} className="space-y-3">
               {showDayHeader ? (
                 <div className="text-center">
                   <span className="inline-block px-3 py-0.5 rounded-full bg-surface-2 border border-border-soft text-[11px] text-text-muted">
@@ -264,6 +285,7 @@ export function ChatPane() {
 
               <ChatBubble
                 message={msg}
+                highlighted={focusedMessageId === msg.id}
                 formattedTime={formatMessageTime(
                   msg.created_at,
                   profile.timezone,

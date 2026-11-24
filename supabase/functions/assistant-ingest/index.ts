@@ -213,9 +213,23 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'Transcrição requer GROQ_API_KEY no servidor.' }, 500);
     }
 
-    let audioBytes: Uint8Array | null = decodeBase64ToBytes(body.audio_base64);
+    const maxBase64Chars = Math.ceil((MAX_AUDIO_BYTES * 4) / 3) + 256;
+    if (body.audio_base64.length > maxBase64Chars) {
+      body.audio_base64 = undefined;
+      return jsonResponse({ error: 'Arquivo de áudio excede o limite de 4 MB.' }, 413);
+    }
+
+    let audioBytes: Uint8Array | null = null;
+    try {
+      audioBytes = decodeBase64ToBytes(body.audio_base64);
+    } catch {
+      body.audio_base64 = undefined;
+      return jsonResponse({ error: 'Áudio em base64 malformado.' }, 400);
+    }
+
     if (audioBytes.byteLength > MAX_AUDIO_BYTES) {
       audioBytes = null;
+      body.audio_base64 = undefined;
       return jsonResponse({ error: 'Arquivo de áudio excede o limite de 4 MB.' }, 413);
     }
 
