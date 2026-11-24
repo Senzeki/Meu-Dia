@@ -15,6 +15,8 @@ import type {
   MuralNote,
   MuralStatus,
   NavigationTab,
+  NotificationActionPayload,
+  PassatemposSearchCandidate,
   RoutineMode,
   SyncStateSnapshot,
   Task,
@@ -153,6 +155,11 @@ export interface DataStoreContract {
   resolveClarification: (messageId: UUID, optionId: string) => Promise<void>;
   editAudioTranscript: (messageId: UUID, correctedText: string) => Promise<void>;
   triggerWeeklyCheckinIfDue: () => Promise<boolean>;
+  confirmPassatemposCandidate: (
+    messageId: UUID,
+    candidate: PassatemposSearchCandidate,
+  ) => Promise<void>;
+  handleNotificationAction: (payload: NotificationActionPayload) => Promise<void>;
   undoOrRedirectMessageAction: (
     messageId: UUID,
     target: RedirectActionTarget,

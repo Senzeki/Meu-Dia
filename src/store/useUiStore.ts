@@ -8,10 +8,12 @@ interface UiStoreState {
   searchOpen: boolean;
   pauseModalOpen: boolean;
   settingsOpen: boolean;
+  focusedMessageId: string | null;
   pauseSession: PauseSession;
   setMobileTab: (tab: NavigationTab) => void;
   setDesktopLeftTab: (tab: DesktopLeftTab) => void;
   navigateToArea: (tab: NavigationTab, horizon?: AgendaHorizon) => void;
+  focusChatMessage: (messageId: string | null) => void;
   setAgendaHorizon: (horizon: AgendaHorizon) => void;
   setSearchOpen: (open: boolean) => void;
   setPauseModalOpen: (open: boolean) => void;
@@ -27,6 +29,7 @@ export const useUiStore = create<UiStoreState>((set) => ({
   searchOpen: false,
   pauseModalOpen: false,
   settingsOpen: false,
+  focusedMessageId: null,
   pauseSession: {
     active: false,
     started_at: null,
@@ -52,6 +55,12 @@ export const useUiStore = create<UiStoreState>((set) => ({
       activeMobileTab: tab,
       activeDesktopLeftTab: tab === 'chat' ? state.activeDesktopLeftTab : tab,
       agendaHorizon: horizon ?? state.agendaHorizon,
+    })),
+
+  focusChatMessage: (messageId) =>
+    set((state) => ({
+      focusedMessageId: messageId,
+      activeMobileTab: messageId ? 'chat' : state.activeMobileTab,
     })),
 
   setAgendaHorizon: (horizon) => set({ agendaHorizon: horizon }),

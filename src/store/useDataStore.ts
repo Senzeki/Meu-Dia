@@ -2329,5 +2329,8 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
       const profile = useAuthStore.getState().profile;
       return exportBackupFromLocalDb(profile);
     },
+
+    confirmPassatemposCandidate: async () => undefined,
+    handleNotificationAction: async () => undefined,
   };
 });

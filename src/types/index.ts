@@ -8,4 +8,5 @@ export * from './guardados';
 export * from './notifications';
 export * from './sync';
 export * from './platform';
+export * from './bridges';
 export * from './domain';

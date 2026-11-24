@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Meu Dia</string>
+    <string name="title_activity_main">Meu Dia</string>
+    <string name="package_name">com.meudia.app</string>
+    <string name="custom_url_scheme">com.meudia.app</string>
+</resources>

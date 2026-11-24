@@ -1,0 +1,35 @@
+name: Supabase Keep-Alive (Meu Dia)
+
+on:
+  schedule:
+    # Diariamente às 06:00 UTC (03:00 America/Sao_Paulo) evitando pausa por inatividade no plano Free
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/supabase-keep-alive.yml'
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping REST endpoint do Supabase (Meu Dia)
+        env:
+          SUPABASE_URL: ${{ secrets.MEU_DIA_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.MEU_DIA_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "Secrets MEU_DIA_SUPABASE_URL/MEU_DIA_SUPABASE_ANON_KEY não configurados ainda; pulando keep-alive sem falha."
+            exit 0
+          fi
+
+          HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/rest/v1/profiles?select=id&limit=1")
+
+          echo "Supabase keep-alive HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 500 ]; then
+            echo "Falha ao manter Supabase ativo (HTTP $HTTP_CODE)"
+            exit 1
+          fi
