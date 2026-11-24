@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   GEMINI_FALLBACK_MODEL,
+  GEMINI_MODELS,
   GROQ_MODELS,
   callModelWithRotation,
+  transcribeAudioWithRotation,
 } from '../../supabase/functions/assistant-ingest/modelRotation';
 
 describe('Rotação de Modelos e Fallback na Edge Function (Fase 3)', () => {
@@ -135,5 +137,84 @@ describe('Rotação de Modelos e Fallback na Edge Function (Fase 3)', () => {
     ).rejects.toThrow(/401/);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rotaciona entre modelos Google Gemini quando o primeiro retorna 429', async () => {
+    const calledGeminiModels: string[] = [];
+
+    const mockFetch = vi.fn(async (url: RequestInfo | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes(GEMINI_MODELS[0])) {
+        calledGeminiModels.push(GEMINI_MODELS[0]);
+        return new Response('rate limit', { status: 429 });
+      }
+      if (urlStr.includes(GEMINI_MODELS[1])) {
+        calledGeminiModels.push(GEMINI_MODELS[1]);
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        status: 'applied',
+                        reply_text: 'Anotado via Gemini 2.5.',
+                        actions: [],
+                      }),
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`URL inesperada: ${urlStr}`);
+    }) as unknown as typeof fetch;
+
+    const res = await callModelWithRotation({
+      systemPrompt: 'sys',
+      userPrompt: 'lembrar amanhã',
+      geminiApiKey: 'test-gemini-key',
+      preferredProvider: 'gemini',
+      fetchFn: mockFetch,
+    });
+
+    expect(calledGeminiModels).toEqual([GEMINI_MODELS[0], GEMINI_MODELS[1]]);
+    expect(res.modelUsed).toBe(GEMINI_MODELS[1]);
+  });
+
+  it('transcreve áudio via Google Gemini Multimodal quando Whisper falha ou chave Groq não existe', async () => {
+    const mockFetch = vi.fn(async (url: RequestInfo | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('generativelanguage.googleapis.com')) {
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: 'Trocar óleo da minha moto amanhã às 9h' }],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`URL inesperada: ${urlStr}`);
+    }) as unknown as typeof fetch;
+
+    const result = await transcribeAudioWithRotation({
+      audioBytes: new Uint8Array([1, 2, 3, 4]),
+      audioBase64: 'AQIDBA==',
+      mimeType: 'audio/webm',
+      geminiApiKey: 'test-gemini-key',
+      fetchFn: mockFetch,
+    });
+
+    expect(result.transcript).toBe('Trocar óleo da minha moto amanhã às 9h');
+    expect(result.providerUsed).toBe(GEMINI_MODELS[0]);
   });
 });

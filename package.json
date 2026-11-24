@@ -10,7 +10,8 @@
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "apk": "powershell -ExecutionPolicy Bypass -File ./scripts/gerar-apk.ps1"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.2",

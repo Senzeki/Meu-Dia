@@ -118,7 +118,11 @@
 - `android/app/src/main/java/com/meudia/app/CallAlarmReceiver.java` — Deduplicação por `job_id` (5 min) e disparo de notificação `FullScreenIntent` no canal `meudia_call_alarm`.
 - `android/app/src/main/java/com/meudia/app/CallAlarmActivity.java` — Tela cheia sobre bloqueio com toque/vibração contínuos, botões **Atender** (deep link) e **Adiar 10 min**.
 - `android/app/src/main/java/com/meudia/app/NotificationActionReceiver.java` — Ações inline (`Adiar 1h`, `Concluir`, `Adiar 10 min`, `Abrir`).
-- `scripts/gerar-apk.ps1` — Script automatizado com autodetecção de JDK 21 / `ANDROID_HOME`, build Web, `npx cap sync android`, `gradlew.bat assembleDebug` e cópia em `dist-apk/MeuDia_v<Version>.apk`.
+- `scripts/gerar-apk.ps1` — Script automatizado com sincronização de versão (`package.json` + `build.gradle`), autodetecção de JDK 21 / `ANDROID_HOME`, build Web, `npx cap sync android`, `gradlew.bat assembleDebug` e publicação no Google Drive (`G:\Meu Drive\Programacão\Meu Dia\`) com `log_atualizacoes.txt`.
+- `scripts/sync-supabase-secrets.ps1` — Envia com 1 comando os segredos de `supabase/functions/.env` (gitignored) para as Edge Functions do novo projeto Supabase.
+- `supabase/functions/.env.example` — Template dos segredos server-side das Edge Functions (`GROQ_API_KEY`, `GEMINI_API_KEY`, `CRON_SECRET`, FCM e pontes).
+- `docs/gerar-apk.md` — Protocolo oficial de versionamento, changelog e geração de APK no Google Drive.
+- `log_atualizacoes.txt` — Histórico de versões do APK sincronizado com o Google Drive.
 - `.github/workflows/supabase-keep-alive.yml` — Workflow diário mantendo o projeto Supabase Free ativo.
 
 ## `tests/` (Suíte Automatizada Vitest)

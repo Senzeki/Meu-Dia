@@ -1,5 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
-import { callModelWithRotation } from './modelRotation.ts';
+import {
+  callModelWithRotation,
+  transcribeAudioWithRotation,
+} from './modelRotation.ts';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -9,7 +12,6 @@ const CORS_HEADERS = {
 
 const MAX_AUDIO_DURATION_SECONDS = 90;
 const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
-const WHISPER_MODELS = ['whisper-large-v3-turbo', 'whisper-large-v3'] as const;
 
 interface IngestBody {
   message_id?: string;
@@ -47,56 +49,6 @@ function decodeBase64ToBytes(base64: string): Uint8Array {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
-}
-
-async function transcribeAudioWithGroq(params: {
-  audioBytes: Uint8Array;
-  mimeType: string;
-  groqApiKey: string;
-}): Promise<string> {
-  const ext = params.mimeType.includes('mp4')
-    ? 'm4a'
-    : params.mimeType.includes('ogg')
-      ? 'ogg'
-      : 'webm';
-
-  for (const model of WHISPER_MODELS) {
-    const form = new FormData();
-    const blob = new Blob([params.audioBytes], { type: params.mimeType });
-    form.append('file', blob, `audio.${ext}`);
-    form.append('model', model);
-    form.append('language', 'pt');
-    form.append('response_format', 'json');
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
-    try {
-      const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${params.groqApiKey}`,
-        },
-        body: form,
-        signal: controller.signal,
-      });
-
-      if (res.ok) {
-        const data = (await res.json()) as { text?: string };
-        const text = data.text?.trim() ?? '';
-        if (text) return text;
-      }
-
-      if (res.status === 429 || res.status >= 500 || res.status === 404) {
-        continue;
-      }
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Falha na transcrição (${res.status}): ${errText}`);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  throw new Error('Não foi possível transcrever o áudio no momento.');
 }
 
 function buildSystemPrompt(params: {
@@ -201,6 +153,12 @@ Deno.serve(async (req: Request) => {
 
   const groqApiKey = Deno.env.get('GROQ_API_KEY') ?? '';
   const geminiApiKey = Deno.env.get('GEMINI_API_KEY') ?? '';
+  const preferredGroqModel = Deno.env.get('GROQ_MODEL') ?? '';
+  const preferredWhisperModel = Deno.env.get('GROQ_WHISPER_MODEL') ?? '';
+  const preferredGeminiModel = Deno.env.get('GEMINI_MODEL') ?? '';
+  const preferredProvider =
+    Deno.env.get('AI_PRIMARY_PROVIDER') === 'gemini' ? 'gemini' : 'groq';
+
   if (!groqApiKey && !geminiApiKey) {
     return jsonResponse({ error: 'Chaves de IA não configuradas no servidor.' }, 500);
   }
@@ -209,10 +167,6 @@ Deno.serve(async (req: Request) => {
   let transcript: string | undefined;
 
   if (body.audio_base64) {
-    if (!groqApiKey) {
-      return jsonResponse({ error: 'Transcrição requer GROQ_API_KEY no servidor.' }, 500);
-    }
-
     const maxBase64Chars = Math.ceil((MAX_AUDIO_BYTES * 4) / 3) + 256;
     if (body.audio_base64.length > maxBase64Chars) {
       body.audio_base64 = undefined;
@@ -234,11 +188,16 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-      transcript = await transcribeAudioWithGroq({
+      const audioRes = await transcribeAudioWithRotation({
         audioBytes,
+        audioBase64: body.audio_base64,
         mimeType: body.audio_mime_type || 'audio/webm',
         groqApiKey,
+        geminiApiKey,
+        preferredWhisperModel,
+        preferredGeminiModel,
       });
+      transcript = audioRes.transcript;
       effectiveText = transcript;
     } finally {
       // Descarta referência ao buffer de áudio imediatamente após transcrição
@@ -266,6 +225,9 @@ Deno.serve(async (req: Request) => {
       userPrompt: effectiveText,
       groqApiKey,
       geminiApiKey,
+      preferredGroqModel,
+      preferredGeminiModel,
+      preferredProvider,
     });
 
     return jsonResponse({

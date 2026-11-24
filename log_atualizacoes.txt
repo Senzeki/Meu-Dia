@@ -1,0 +1,9 @@
+==================================================
+Versão: v0.1.0 (24/11/2026)
+==================================================
+- [Novidade] Versão inicial completa do Meu Dia em tema escuro nativo (Mobile 5 abas + PC Split View).
+- [Novidade] 5 áreas funcionais 100% offline-first (IndexedDB): Conversa, Agenda (Hoje/Semana/Mês/Depois + Modo Descansar), Casa (Mural com horário + Rotinas), Cuidados (Ativos, km/horas, ciclos flexíveis e garantias com aviso 30d) e Guardados.
+- [Novidade] IA na nuvem (Edge Function assistant-ingest) com rotação Groq + Google Gemini (texto multi-intenção, ambiguidade e transcrição de áudio até 90s com descarte pós-transcrição).
+- [Novidade] Recursos nativos Android: Diagnóstico real de notificações/alarmes/bateria, Modo Ligação (FullScreenIntent + redundância offline AlarmManager), ações rápidas na notificação, Deep Link e Android Share Target.
+- [Novidade] Pareamento seguro de 2 contas (convite de 24h), Busca Global, Exportação JSON e pontes opcionais desacopladas para Rotinas de Casa e Passatempos.
+==================================================

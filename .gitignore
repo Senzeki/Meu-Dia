@@ -12,6 +12,11 @@ dist-ssr/
 .env
 .env.*
 !.env.example
+supabase/.env
+supabase/.env.*
+supabase/functions/.env
+supabase/functions/.env.*
+!supabase/functions/.env.example
 
 # Android / Capacitor build artifacts
 android/app/build/
