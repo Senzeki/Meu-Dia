@@ -38,6 +38,10 @@ backups/
 # Supabase CLI local link state
 supabase/.temp/
 
+# Firebase client & service account files
+android/app/google-services.json
+*firebase-adminsdk*.json
+
 # Logs & OS
 *.log
 npm-debug.log*
