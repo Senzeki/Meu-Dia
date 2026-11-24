@@ -89,3 +89,62 @@ export function isBeforeLocalToday(
   const today = getLocalDateString(now, timezone);
   return isoDate < today;
 }
+
+export function parseIsoDateParts(isoDate: ISODateString): {
+  year: number;
+  month: number;
+  day: number;
+} {
+  const [y, m, d] = isoDate.split('-').map((n) => Number.parseInt(n, 10));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    throw new Error(`Data ISO inválida: ${isoDate}`);
+  }
+  return { year: y, month: m, day: d };
+}
+
+export function formatIsoDateParts(year: number, month: number, day: number): ISODateString {
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+export function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+export function getDaysInMonth(year: number, month1to12: number): number {
+  return new Date(Date.UTC(year, month1to12, 0)).getUTCDate();
+}
+
+/**
+ * Soma (ou subtrai) dias em uma data calendário YYYY-MM-DD sem desvios de fuso/DST.
+ */
+export function addDaysToIsoDate(isoDate: ISODateString, days: number): ISODateString {
+  const { year, month, day } = parseIsoDateParts(isoDate);
+  const utc = new Date(Date.UTC(year, month - 1, day + days));
+  return formatIsoDateParts(
+    utc.getUTCFullYear(),
+    utc.getUTCMonth() + 1,
+    utc.getUTCDate(),
+  );
+}
+
+/**
+ * Retorna dia da semana (0 = Dom .. 6 = Sáb) para uma data YYYY-MM-DD.
+ */
+export function getWeekdayFromIsoDate(isoDate: ISODateString): number {
+  const { year, month, day } = parseIsoDateParts(isoDate);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
+/**
+ * Diferença em dias inteiros (toIsoDate - fromIsoDate).
+ */
+export function diffDaysBetweenIsoDates(
+  fromIsoDate: ISODateString,
+  toIsoDate: ISODateString,
+): number {
+  const from = parseIsoDateParts(fromIsoDate);
+  const to = parseIsoDateParts(toIsoDate);
+  const fromMs = Date.UTC(from.year, from.month - 1, from.day);
+  const toMs = Date.UTC(to.year, to.month - 1, to.day);
+  return Math.round((toMs - fromMs) / 86_400_000);
+}

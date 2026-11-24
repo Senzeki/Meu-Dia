@@ -40,6 +40,12 @@
   --modal-scale: var(--scale-large);
   --modal-ease: var(--ease-smooth-out);
 
+  --dropdown-open-dur: var(--duration-fast);
+  --dropdown-close-dur: var(--duration-quick);
+  --dropdown-pre-scale: var(--scale-medium);
+  --dropdown-closing-scale: var(--scale-tiny);
+  --dropdown-ease: var(--ease-smooth-out);
+
   --tabs-dur: var(--duration-fast);
   --tabs-ease: var(--ease-smooth-out);
 
@@ -47,6 +53,19 @@
   --acc-collapse: var(--duration-fast);
   --acc-chevron: var(--duration-fast);
   --acc-ease: var(--ease-smooth-out);
+
+  --check-box: var(--duration-quick);
+  --check-draw: var(--duration-medium);
+  --check-delay: 0ms;
+  --check-uncheck: var(--duration-quick);
+  --check-ease: var(--ease-smooth-out);
+
+  --toggle-dur: var(--duration-medium);
+  --toggle-travel: 16px;
+  --toggle-ov1: 1px;
+  --toggle-ov2: 0px;
+  --toggle-track: 0ms;
+  --toggle-ease: cubic-bezier(0.34, 1.35, 0.64, 1);
 
   --toast-open: var(--duration-medium);
   --toast-close: var(--duration-fast);

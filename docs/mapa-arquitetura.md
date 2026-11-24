@@ -41,10 +41,16 @@
 - `src/styles/motion.css` — Escala semântica de movimento (`--duration-*`, `--ease-*`, `--distance-*`, `--scale-*`, `--blur-*`) + `prefers-reduced-motion`.
 - `src/styles/global.css` — Integração Tailwind CSS v4 (`@theme`), superfícies, bolhas de conversa, `<dialog:modal>` com contenção de scroll e accordion CSS Grid.
 
-## `src/lib/` (Utilitários & Abstração de Plataforma)
+## `src/lib/` (Utilitários, Banco Local, Domínio & Abstração de Plataforma)
 - `src/lib/uuid.ts` — Geração UUID v4 client-side (`crypto.randomUUID` + fallback RFC 4122).
-- `src/lib/timezone.ts` — Cálculos explícitos em `America/Sao_Paulo` (`getLocalDateString`, `getLocalIsoNow`, formatação de data).
+- `src/lib/timezone.ts` — Cálculos explícitos em `America/Sao_Paulo` (`getLocalDateString`, `getLocalIsoNow`, aritmética calendário `YYYY-MM-DD`, formatação de data).
 - `src/lib/supabase.ts` — Cliente Supabase resiliente com fallback local seguro quando `.env` está vazio.
+- `src/lib/db/localDb.ts` — Persistência local-first em IndexedDB (`idb`) com fallback em memória para testes, paginação de mensagens (50/50), `outbox_mutations`, `media_uploads` e `media_blobs`.
+- `src/lib/db/seedData.ts` — Carga inicial realista única (controlada por flag para nunca recriar itens removidos).
+- `src/lib/domain/textUtils.ts` — Normalização de texto e busca insensível a acentos/maiúsculas.
+- `src/lib/domain/careEngine.ts` — Motor puro de cuidados (`flexible_days`, `meter` km/horas + histórico, `annual_date` com ano bissexto e alertas de garantia <= 30 dias).
+- `src/lib/domain/routineEngine.ts` — Motor enxuto de rotinas da casa (`fixed_weekdays` e `cyclic_days`, histórico limitado a 10).
+- `src/lib/domain/localPredictor.ts` — Predição local instantânea O(1) para prints, URLs, km/horas, aguardando retorno e tarefas offline.
 - `src/lib/platform/runtime.ts` — Detecção segura de ambiente (`web` vs. `android` nativo Capacitor).
 - `src/lib/platform/haptics.ts` — Feedback tátil nativo no Android com fallback silencioso na Web.
 - `src/lib/platform/notifications.ts` — Diagnóstico de permissões, agendamento e cancelamento de alarmes locais com fallback Web.
@@ -55,6 +61,8 @@
 ## `src/services/` (Serviços de Domínio & Infra)
 - `src/services/authService.ts` — Autenticação para 2 contas independentes, perfil, geração e resgate de convite curto de 24h (`MD-XXXXXX`).
 - `src/services/mediaService.ts` — Upload para o bucket privado `meu-dia-media` (`personal/` e `shared/`) e acesso exclusivo via Signed URLs com cache.
+- `src/services/syncService.ts` — Outbox offline idempotente (`client_mutation_id`), resolução *Last-Write-Wins* por `updated_at` com soft delete anti-zumbi e fila separada de uploads de mídia.
+- `src/services/backupService.ts` — Geração do `BackupExportPayload` JSON com todos os dados textuais do usuário.
 
 ## `src/store/` (Estado Global Zustand)
 - `src/store/useAuthStore.ts` — Sessão, perfil local/remoto, parceiro vinculado e gerenciamento de convites da Casa.
@@ -63,23 +71,32 @@
 
 ## `src/components/` (Componentes Visuais)
 - `src/components/ui/ModalDialog.tsx` — Wrapper acessível para `<dialog>` nativo com `closedby="any"` e fallback light-dismiss.
-- `src/components/layout/TopBar.tsx` — Cabeçalho compacto com avatar, seletor Split View no PC, Busca Global e `Descansar`.
+- `src/components/layout/TopBar.tsx` — Cabeçalho compacto com avatar, seletor Split View no PC, status offline discreto, Busca Global e `Descansar`.
 - `src/components/layout/BottomNav.tsx` — Barra inferior mobile com 5 abas no alcance do polegar e pílula animada.
-- `src/components/layout/AppShell.tsx` — Casca adaptativa (Mobile 1 coluna + Bottom Bar | PC Split View com Conversa fixa à direita).
-- `src/components/modals/GlobalSearchDialog.tsx` — Diálogo de busca global (`Ctrl+K` / lupa).
-- `src/components/modals/PauseDialog.tsx` — Configuração rápida do modo `Descansar` (15 / 20 / 30 min).
-- `src/components/settings/SettingsDialog.tsx` — Perfil, fuso `America/Sao_Paulo`, Auth de 2 contas e pareamento 24h.
+- `src/components/layout/AppShell.tsx` — Casca adaptativa com `React.lazy` (Mobile 1 coluna + Bottom Bar | PC Split View com Conversa fixa à direita).
+- `src/components/chat/ChatBubble.tsx` — Bolha da Conversa com prévia de imagem, vínculos vivos (`open|done|removed`) e menu `Corrigir / Desfazer`.
+- `src/components/agenda/TaskModal.tsx` — Modal de criação/edição manual de tarefas (`Agenda`/`Casa`, aguardando retorno e toggle opt-in Modo Ligação).
+- `src/components/casa/MuralModal.tsx` — Modal de criação/edição de recados com horário no Mural e toggle opt-in Modo Ligação.
+- `src/components/casa/CasaItemModal.tsx` — Modal unificado de tarefa compartilhada avulsa ou rotina recorrente (`fixed_weekdays` / `cyclic_days`).
+- `src/components/cuidados/AssetModal.tsx` — Cadastro/edição de ativos, medidor (`km|hours|none`), compra, garantia e upload de nota fiscal.
+- `src/components/cuidados/CareRuleModal.tsx` — Criação/edição de regras de cuidado (`flexible_days`, `meter`, `annual_date`).
+- `src/components/cuidados/CompleteCareModal.tsx` — Confirmação de serviço realizado com medição real pré-preenchida, oficina/peça e valor.
+- `src/components/guardados/VaultItemModal.tsx` — Criação/edição de `Prints` intactos (sem OCR), `Links`, `Estudos` e `Trabalho`.
+- `src/components/modals/GlobalSearchDialog.tsx` — Diálogo de busca global unificada (`Ctrl+K` / lupa) navegando direto para a área.
+- `src/components/modals/PauseDialog.tsx` — Configuração rápida e timer regressivo `mm:ss` do modo `Descansar` (15 / 20 / 30 min).
+- `src/components/settings/SettingsDialog.tsx` — Perfil, fuso `America/Sao_Paulo`, rotina de pausas, Auth 2 contas, pareamento 24h e Exportação JSON.
 
 ## `src/pages/` (Páginas das 5 Áreas)
-- `src/pages/ChatPane.tsx` — Painel da `Conversa` cronológica com entrada de texto, mídia, áudio e atalhos vivos.
-- `src/pages/AgendaPage.tsx` — `Agenda` (`Hoje | Semana | Mês | Depois`), banner discreto de dias anteriores, `Aguardando retorno` e tela de pausa.
-- `src/pages/CasaPage.tsx` — `Mural` com horário, `Tarefas e rotinas da casa` (`Tudo | Meu | Dela | Os dois`) e lembrete de mercado.
-- `src/pages/CuidadosPage.tsx` — Cartões de ativos com divulgação progressiva de garantia, ciclos e histórico.
-- `src/pages/GuardadosPage.tsx` — Cofre pessoal filtrado por `Prints`, `Links`, `Estudos` e `Trabalho`.
+- `src/pages/ChatPane.tsx` — Painel da `Conversa` cronológica paginada (~50), envio de texto/links/fotos e rastreabilidade viva.
+- `src/pages/AgendaPage.tsx` — `Agenda` (`Hoje | Semana | Mês | Depois`), banner discreto de dias anteriores, `Aguardando retorno`, calendário mensal com alertas de garantia e tela de pausa.
+- `src/pages/CasaPage.tsx` — `Mural` com horário, `Tarefas e rotinas da casa` (`Tudo | Meu | Dela | Os dois`), conclusão com histórico e lembrete de mercado.
+- `src/pages/CuidadosPage.tsx` — Cartões de ativos com divulgação progressiva, atualização rápida de medidor, nota fiscal, regras e histórico técnico.
+- `src/pages/GuardadosPage.tsx` — Cofre pessoal filtrado por `Prints`, `Links`, `Estudos` e `Trabalho` com visualização ampliada de prints.
 
 ## `supabase/` (Banco de Dados, RLS & Funções)
 - `supabase/config.toml` — Configuração local do projeto Supabase `meu-dia`.
-- `supabase/migrations/0001_initial_schema.sql` — Schema completo (12 tabelas), triggers de `updated_at`, RPCs seguras de pareamento 24h, cancelamento automático de `notification_jobs`, trava atômica `SKIP LOCKED`, RLS rigoroso e bucket privado `meu-dia-media`.
+- `supabase/migrations/0001_initial_schema.sql` — Schema completo (13 tabelas), triggers de `updated_at`, RPCs seguras de pareamento 24h, cancelamento automático de `notification_jobs`, trava atômica `SKIP LOCKED`, RLS rigoroso e bucket privado `meu-dia-media`.
+- `supabase/migrations/0002_phase2_refinements.sql` — Migração de usuário solo ao resgatar convite do parceiro e limpeza automática de `invite_redeem_attempts` (> 24h).
 
 ## `tests/` (Suíte Automatizada Vitest)
 - `tests/setup.ts` — Setup global `@testing-library/jest-dom` e polyfill leve de `HTMLDialogElement` para `jsdom`.
@@ -88,3 +105,7 @@
 - `tests/phase1/pairing-media.test.ts` — Testes de convite 24h (`MD-XXXXXX`) e paths privados `personal/` vs. `shared/`.
 - `tests/phase1/rls-schema.test.ts` — Auditoria automatizada de RLS, isolamento privado/compartilhado, bucket privado, triggers de cancelamento e zero segredos no código cliente.
 - `tests/phase1/shell.test.tsx` — Testes de renderização da casca, navegação, modo `Descansar` e ausência de jargões banidos.
+- `tests/phase2/care-and-routines.test.ts` — Testes de ciclos `flexible_days`, `meter`, `annual_date` (bissexto), alerta de garantia 30d e rotinas fixas/cíclicas.
+- `tests/phase2/sync-and-lww.test.ts` — Testes de fila offline idempotente (`client_mutation_id`), conflito Last-Write-Wins e soft delete anti-zumbi.
+- `tests/phase2/store-chat-search-backup.test.ts` — Testes de paginação (~50), predição local O(1), vínculos vivos, `Corrigir / Desfazer`, busca global e exportação JSON.
+- `tests/phase2/sql-refinements.test.ts` — Testes de segurança e privilégios da migração `0002_phase2_refinements.sql`.

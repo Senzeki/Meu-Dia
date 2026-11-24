@@ -1,10 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Leaf } from 'lucide-react';
 import { ModalDialog } from '@/components/ui/ModalDialog';
 import { triggerHaptic } from '@/lib/platform';
 import { useUiStore } from '@/store/useUiStore';
 
 const DURATIONS: Array<15 | 20 | 30> = [15, 20, 30];
+
+export function formatRemainingPauseTime(endsAt: string | null): {
+  formatted: string;
+  remainingSeconds: number;
+} {
+  if (!endsAt) return { formatted: '00:00', remainingSeconds: 0 };
+  const diffMs = new Date(endsAt).getTime() - Date.now();
+  const totalSec = Math.max(0, Math.ceil(diffMs / 1000));
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  return {
+    formatted: `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`,
+    remainingSeconds: totalSec,
+  };
+}
 
 export function PauseDialog() {
   const open = useUiStore((s) => s.pauseModalOpen);
@@ -13,6 +28,22 @@ export function PauseDialog() {
   const startPause = useUiStore((s) => s.startPause);
   const endPause = useUiStore((s) => s.endPause);
   const [selectedMinutes, setSelectedMinutes] = useState<15 | 20 | 30>(20);
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!pauseSession.active || !pauseSession.ends_at) return;
+    const interval = window.setInterval(() => {
+      const { remainingSeconds } = formatRemainingPauseTime(pauseSession.ends_at);
+      if (remainingSeconds <= 0) {
+        endPause();
+      } else {
+        setTick((t) => t + 1);
+      }
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [pauseSession.active, pauseSession.ends_at, endPause]);
+
+  const { formatted } = formatRemainingPauseTime(pauseSession.ends_at);
 
   return (
     <ModalDialog
@@ -27,9 +58,16 @@ export function PauseDialog() {
           <div className="h-11 w-11 rounded-2xl bg-success-soft text-success flex items-center justify-center shrink-0">
             <Leaf className="h-5 w-5" />
           </div>
-          <p className="text-xs text-text-secondary leading-relaxed">
-            Apenas lembretes marcados manualmente como ligação urgente continuam ativos.
-          </p>
+          <div className="min-w-0">
+            {pauseSession.active ? (
+              <p className="text-sm font-semibold text-success font-mono">
+                Restante: {formatted}
+              </p>
+            ) : null}
+            <p className="text-xs text-text-secondary leading-relaxed">
+              Apenas lembretes marcados manualmente como ligação urgente continuam ativos.
+            </p>
+          </div>
         </div>
 
         <div>

@@ -2,8 +2,10 @@ import { motion } from 'framer-motion';
 import {
   Bookmark,
   CalendarDays,
+  CloudOff,
   Home,
   Leaf,
+  RefreshCw,
   Search,
   Settings,
   Wrench,
@@ -11,6 +13,7 @@ import {
 import { formatHeaderDatePtBr } from '@/lib/timezone';
 import { triggerHaptic } from '@/lib/platform';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useDataStore } from '@/store/useDataStore';
 import { useUiStore } from '@/store/useUiStore';
 import type { DesktopLeftTab, NavigationTab } from '@/types';
 
@@ -22,7 +25,11 @@ const TAB_LABELS: Record<NavigationTab, string> = {
   guardados: 'Guardados',
 };
 
-const DESKTOP_TABS: Array<{ id: DesktopLeftTab; label: string; icon: typeof CalendarDays }> = [
+const DESKTOP_TABS: Array<{
+  id: DesktopLeftTab;
+  label: string;
+  icon: typeof CalendarDays;
+}> = [
   { id: 'agenda', label: 'Agenda', icon: CalendarDays },
   { id: 'casa', label: 'Casa', icon: Home },
   { id: 'cuidados', label: 'Cuidados', icon: Wrench },
@@ -32,6 +39,9 @@ const DESKTOP_TABS: Array<{ id: DesktopLeftTab; label: string; icon: typeof Cale
 export function TopBar() {
   const profile = useAuthStore((s) => s.profile);
   const partner = useAuthStore((s) => s.partner);
+  const syncStatus = useDataStore((s) => s.syncStatus);
+  const flushOfflineQueues = useDataStore((s) => s.flushOfflineQueues);
+
   const activeMobileTab = useUiStore((s) => s.activeMobileTab);
   const activeDesktopLeftTab = useUiStore((s) => s.activeDesktopLeftTab);
   const pauseSession = useUiStore((s) => s.pauseSession);
@@ -45,14 +55,22 @@ export function TopBar() {
     ? `${profile.display_name} & ${partner.display_name} • ${formattedDate}`
     : `${formattedDate}`;
 
+  const showSyncBadge =
+    !syncStatus.online ||
+    syncStatus.pending_mutations > 0 ||
+    syncStatus.pending_uploads > 0;
+
+  const totalPending =
+    syncStatus.pending_mutations + syncStatus.pending_uploads;
+
   return (
     <header
-      className="shrink-0 bg-surface-1/90 backdrop-blur-md border-b border-border px-4 lg:px-6"
+      className="shrink-0 bg-surface-1/90 backdrop-blur-md border-b border-border px-3.5 sm:px-4 lg:px-6"
       style={{ paddingTop: 'var(--safe-top)' }}
     >
-      <div className="h-[60px] flex items-center justify-between gap-3">
+      <div className="h-[60px] flex items-center justify-between gap-2.5 min-w-0">
         {/* Identidade + contexto da área */}
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
           <button
             type="button"
             onClick={() => {
@@ -98,7 +116,9 @@ export function TopBar() {
                 onClick={() => setDesktopLeftTab(tab.id)}
                 aria-current={selected ? 'page' : undefined}
                 className={`relative px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 transition-colors ${
-                  selected ? 'text-accent-foreground' : 'text-text-muted hover:text-text'
+                  selected
+                    ? 'text-accent-foreground'
+                    : 'text-text-muted hover:text-text'
                 }`}
               >
                 {selected ? (
@@ -115,8 +135,42 @@ export function TopBar() {
           })}
         </nav>
 
-        {/* Ações transversais: Busca Global, Descansar e Configurações */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Ações transversais: Status offline/pendências, Busca Global, Descansar e Configurações */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {showSyncBadge ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (syncStatus.online) {
+                  void flushOfflineQueues();
+                }
+              }}
+              title={
+                !syncStatus.online
+                  ? 'Modo offline ativo — alterações salvas no aparelho'
+                  : `${totalPending} pendência(s) para sincronizar`
+              }
+              className="h-10 px-2.5 rounded-full bg-surface-2 border border-border text-[11px] font-medium text-text-secondary inline-flex items-center gap-1.5 hover:bg-surface-3 transition-colors"
+            >
+              {!syncStatus.online ? (
+                <>
+                  <CloudOff className="h-3.5 w-3.5 text-warning shrink-0" />
+                  <span className="hidden sm:inline">Offline</span>
+                  {totalPending > 0 ? <span>({totalPending})</span> : null}
+                </>
+              ) : (
+                <>
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 text-accent shrink-0 ${
+                      syncStatus.syncing ? 'animate-spin' : ''
+                    }`}
+                  />
+                  <span>{totalPending}</span>
+                </>
+              )}
+            </button>
+          ) : null}
+
           <button
             type="button"
             onClick={() => {
@@ -136,13 +190,13 @@ export function TopBar() {
               void triggerHaptic('light');
               setPauseModalOpen(true);
             }}
-            className={`h-10 px-3.5 rounded-full border text-xs font-medium flex items-center gap-1.5 transition-colors ${
+            className={`h-10 px-3 sm:px-3.5 rounded-full border text-xs font-medium flex items-center gap-1.5 transition-colors ${
               pauseSession.active
                 ? 'bg-success-soft border-success/35 text-success'
                 : 'bg-surface-2 border-border text-text-secondary hover:text-text hover:bg-surface-3'
             }`}
           >
-            <Leaf className="h-3.5 w-3.5" />
+            <Leaf className="h-3.5 w-3.5 shrink-0" />
             <span>{pauseSession.active ? 'Em pausa' : 'Descansar'}</span>
           </button>
 

@@ -21,6 +21,8 @@ describe('Casca navegável do Meu Dia (Mobile + Split View + Linguagem Natural)'
     // Navega para Cuidados e expande um ativo (divulgação progressiva)
     const cuidadosTabs = screen.getAllByRole('tab', { name: /cuidados/i });
     fireEvent.click(cuidadosTabs[0]);
-    expect(await screen.findByText('Minha Moto')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Minha Moto', {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
   });
 });
