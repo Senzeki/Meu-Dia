@@ -4,12 +4,23 @@ import type {
   CareRule,
   ChatMessage,
   HouseRoutine,
+  ISOTimestamp,
   MediaUploadTask,
   MuralNote,
   OutboxMutation,
   Task,
+  UUID,
   VaultItem,
 } from '@/types';
+
+export interface AudioQueueItem {
+  id: UUID;
+  message_id: UUID;
+  blob: Blob;
+  mime_type: string;
+  duration_seconds: number;
+  created_at: ISOTimestamp;
+}
 
 export interface LocalMediaBlobRecord {
   storage_path: string;
@@ -37,6 +48,7 @@ export type LocalStoreName =
   | 'outbox_mutations'
   | 'media_uploads'
   | 'media_blobs'
+  | 'audio_queue'
   | 'meta';
 
 interface MeuDiaDbSchema extends DBSchema {
@@ -50,6 +62,7 @@ interface MeuDiaDbSchema extends DBSchema {
   outbox_mutations: { key: string; value: OutboxMutation };
   media_uploads: { key: string; value: MediaUploadTask };
   media_blobs: { key: string; value: LocalMediaBlobRecord };
+  audio_queue: { key: string; value: AudioQueueItem };
   meta: { key: string; value: LocalMetaRecord };
 }
 
@@ -64,11 +77,12 @@ type StoreValueMap = {
   outbox_mutations: OutboxMutation;
   media_uploads: MediaUploadTask;
   media_blobs: LocalMediaBlobRecord;
+  audio_queue: AudioQueueItem;
   meta: LocalMetaRecord;
 };
 
 const DB_NAME = 'meu-dia-local-v1';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 export const CHAT_PAGE_SIZE = 50;
 
 const ALL_STORES: LocalStoreName[] = [
@@ -82,6 +96,7 @@ const ALL_STORES: LocalStoreName[] = [
   'outbox_mutations',
   'media_uploads',
   'media_blobs',
+  'audio_queue',
   'meta',
 ];
 
@@ -96,6 +111,7 @@ const KEY_PATHS: Record<LocalStoreName, string> = {
   outbox_mutations: 'client_mutation_id',
   media_uploads: 'id',
   media_blobs: 'storage_path',
+  audio_queue: 'id',
   meta: 'key',
 };
 
@@ -111,6 +127,7 @@ const memoryStores: Record<LocalStoreName, Map<string, unknown>> = {
   outbox_mutations: new Map(),
   media_uploads: new Map(),
   media_blobs: new Map(),
+  audio_queue: new Map(),
   meta: new Map(),
 };
 

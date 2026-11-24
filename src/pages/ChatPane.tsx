@@ -7,7 +7,8 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { History, ImagePlus, Mic, Send, X } from 'lucide-react';
+import { CloudOff, History, ImagePlus, Send, X } from 'lucide-react';
+import { AudioRecorderButton } from '@/components/chat/AudioRecorderButton';
 import { ChatBubble } from '@/components/chat/ChatBubble';
 import { triggerHaptic } from '@/lib/platform';
 import { getLocalDateString, resolveTimezone } from '@/lib/timezone';
@@ -35,21 +36,30 @@ function formatDayChip(dateStr: string, todayStr: string): string {
 
 export function ChatPane() {
   const profile = useAuthStore((s) => s.profile);
+  const hydrated = useDataStore((s) => s.hydrated);
   const messages = useDataStore((s) => s.messages);
   const hasOlderMessages = useDataStore((s) => s.hasOlderMessages);
+  const pendingAudioCount = useDataStore((s) => s.pendingAudioCount);
   const loadOlderMessages = useDataStore((s) => s.loadOlderMessages);
   const sendChatInput = useDataStore((s) => s.sendChatInput);
+  const triggerWeeklyCheckinIfDue = useDataStore(
+    (s) => s.triggerWeeklyCheckinIfDue,
+  );
 
   const [draft, setDraft] = useState('');
   const [pendingImage, setPendingImage] = useState<File | null>(null);
-  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
-  const [voiceNotice, setVoiceNotice] = useState(false);
+  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(
+    null,
+  );
+  const [audioErrorNotice, setAudioErrorNotice] = useState<string | null>(null);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [sending, setSending] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const lastCompositionEndRef = useRef<number | null>(null);
+  const checkinCheckedRef = useRef(false);
   const chatInputId = useId();
 
   const todayStr = getLocalDateString(new Date(), profile.timezone);
@@ -59,6 +69,14 @@ export function ChatPane() {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [messages.length]);
+
+  useEffect(() => {
+    if (!hydrated || checkinCheckedRef.current) return;
+    checkinCheckedRef.current = true;
+    if (typeof triggerWeeklyCheckinIfDue === 'function') {
+      void triggerWeeklyCheckinIfDue();
+    }
+  }, [hydrated, triggerWeeklyCheckinIfDue]);
 
   useEffect(() => {
     return () => {
@@ -117,6 +135,18 @@ export function ChatPane() {
     setPendingPreviewUrl(null);
   }
 
+  async function handleAudioReady(blob: Blob, durationSeconds: number) {
+    setSending(true);
+    try {
+      await sendChatInput({
+        audio_blob: blob,
+        audio_duration_seconds: durationSeconds,
+      });
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function submitCurrentInput() {
     const trimmed = draft.trim();
     if ((!trimmed && !pendingImage) || sending) return;
@@ -160,12 +190,17 @@ export function ChatPane() {
   }
 
   return (
-    <section aria-label="Conversa" className="h-full flex flex-col bg-bg/60 min-h-0">
+    <section
+      aria-label="Conversa"
+      className="h-full flex flex-col bg-bg/60 min-h-0"
+    >
       {/* Cabeçalho discreto exclusivo do painel direito no PC */}
       <div className="hidden lg:flex items-center justify-between px-5 py-3 border-b border-border bg-surface-1/60">
         <div>
           <h2 className="text-sm font-semibold text-text">Conversa</h2>
-          <p className="text-xs text-text-muted">Texto, links, fotos e áudios rápidos</p>
+          <p className="text-xs text-text-muted">
+            Texto, links, fotos e áudios rápidos
+          </p>
         </div>
       </div>
 
@@ -198,7 +233,7 @@ export function ChatPane() {
               Hoje
             </span>
             <p className="text-xs text-text-muted max-w-xs mx-auto leading-relaxed">
-              Envie uma anotação rápida, link, quilometragem ou foto de print para guardar e organizar.
+              Envie uma anotação rápida, link, quilometragem, áudio curto ou foto de print para guardar e organizar.
             </p>
           </div>
         ) : null}
@@ -229,27 +264,44 @@ export function ChatPane() {
 
               <ChatBubble
                 message={msg}
-                formattedTime={formatMessageTime(msg.created_at, profile.timezone)}
+                formattedTime={formatMessageTime(
+                  msg.created_at,
+                  profile.timezone,
+                )}
               />
             </div>
           );
         })}
       </div>
 
-      {/* Aviso discreto sobre transcrição de voz na Fase 3 */}
-      {voiceNotice ? (
+      {/* Chip discreto de áudios aguardando conexão offline para transcrição */}
+      {pendingAudioCount > 0 ? (
+        <div
+          role="status"
+          className="mx-3 mb-2 px-3.5 py-2 rounded-2xl bg-warning-soft border border-warning/30 flex items-center gap-2 text-xs text-warning"
+        >
+          <CloudOff className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            {pendingAudioCount}{' '}
+            {pendingAudioCount === 1
+              ? 'áudio aguardando conexão para transcrição'
+              : 'áudios aguardando conexão para transcrição'}
+          </span>
+        </div>
+      ) : null}
+
+      {/* Aviso gentil caso o navegador bloqueie ou não possua microfone */}
+      {audioErrorNotice ? (
         <div
           role="status"
           className="mx-3 mb-2 px-3.5 py-2.5 rounded-2xl bg-surface-2 border border-border flex items-center justify-between gap-2 text-xs text-text-secondary"
         >
-          <span>
-            A transcrição de áudio na nuvem com texto editável entra na Fase 3.
-          </span>
+          <span>{audioErrorNotice}</span>
           <button
             type="button"
-            onClick={() => setVoiceNotice(false)}
-            aria-label="Fechar aviso de áudio"
-            className="h-7 w-7 rounded-full bg-surface-3 flex items-center justify-center text-text-muted hover:text-text shrink-0"
+            onClick={() => setAudioErrorNotice(null)}
+            aria-label="Fechar aviso de microfone"
+            className="h-8 w-8 rounded-full bg-surface-3 flex items-center justify-center text-text-muted hover:text-text shrink-0"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -267,7 +319,9 @@ export function ChatPane() {
                 className="h-10 w-10 rounded-lg object-cover border border-border-soft shrink-0"
               />
             ) : null}
-            <span className="text-xs text-text truncate">{pendingImage.name}</span>
+            <span className="text-xs text-text truncate">
+              {pendingImage.name}
+            </span>
           </div>
           <button
             type="button"
@@ -298,7 +352,9 @@ export function ChatPane() {
           onClick={() => fileInputRef.current?.click()}
           aria-label="Anexar foto ou print"
           title="Foto ou print"
-          className="h-11 w-11 rounded-full bg-surface-2 border border-border flex items-center justify-center text-text-secondary hover:text-text hover:bg-surface-3 transition-colors shrink-0"
+          className={`${
+            isRecordingAudio ? 'hidden' : 'flex'
+          } h-11 w-11 rounded-full bg-surface-2 border border-border items-center justify-center text-text-secondary hover:text-text hover:bg-surface-3 transition-colors shrink-0`}
         >
           <ImagePlus className="h-4 w-4" />
         </button>
@@ -318,27 +374,25 @@ export function ChatPane() {
           onKeyDown={handleKeyDown}
           enterKeyHint="send"
           placeholder="Escreva uma anotação, link ou km..."
-          className="flex-1 min-w-0 h-11 px-4 rounded-full bg-surface-2 border border-border text-sm text-text placeholder:text-text-dim"
+          className={`${
+            isRecordingAudio ? 'hidden' : 'block'
+          } flex-1 min-w-0 h-11 px-4 rounded-full bg-surface-2 border border-border text-sm text-text placeholder:text-text-dim`}
         />
 
-        <button
-          type="button"
-          onClick={() => {
-            void triggerHaptic('light');
-            setVoiceNotice((v) => !v);
-          }}
-          aria-label="Gravar áudio curto"
-          title="Áudio curto"
-          className="h-11 w-11 rounded-full bg-surface-2 border border-border flex items-center justify-center text-text-secondary hover:text-text hover:bg-surface-3 transition-colors shrink-0"
-        >
-          <Mic className="h-4 w-4" />
-        </button>
+        <AudioRecorderButton
+          disabled={sending}
+          onAudioReady={handleAudioReady}
+          onErrorNotice={setAudioErrorNotice}
+          onRecordingChange={setIsRecordingAudio}
+        />
 
         <button
           type="submit"
           disabled={(!draft.trim() && !pendingImage) || sending}
           aria-label="Enviar mensagem"
-          className="h-11 px-4 rounded-full bg-accent text-accent-foreground text-xs font-semibold flex items-center gap-1.5 hover:bg-accent-hover disabled:opacity-45 transition-all shrink-0"
+          className={`${
+            isRecordingAudio ? 'hidden' : 'flex'
+          } h-11 px-4 rounded-full bg-accent text-accent-foreground text-xs font-semibold items-center gap-1.5 hover:bg-accent-hover disabled:opacity-45 transition-all shrink-0`}
         >
           <Send className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Enviar</span>

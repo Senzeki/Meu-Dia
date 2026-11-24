@@ -354,7 +354,7 @@ export function CasaPage() {
                   key={item.id}
                   className="p-3.5 flex items-center justify-between gap-3 hover:bg-surface-3/40 transition-colors"
                 >
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <button
                       type="button"
                       role="checkbox"
@@ -366,25 +366,29 @@ export function CasaPage() {
                         void triggerHaptic(isDone ? 'light' : 'success');
                         void setTaskStatus(item.id, isDone ? 'open' : 'done');
                       }}
-                      className={`t-check h-6 w-6 rounded-lg border flex items-center justify-center shrink-0 ${
-                        isDone
-                          ? 'bg-accent border-accent text-accent-foreground'
-                          : 'bg-surface-3 border-border-strong text-transparent hover:border-accent'
-                      }`}
+                      className="t-check h-10 w-10 -ml-1.5 rounded-xl flex items-center justify-center shrink-0"
                     >
-                      <svg
-                        viewBox="0 0 10.1668 10.1668"
-                        className="h-3.5 w-3.5"
-                        fill="none"
+                      <span
+                        className={`h-6 w-6 rounded-lg border flex items-center justify-center transition-colors ${
+                          isDone
+                            ? 'bg-accent border-accent text-accent-foreground'
+                            : 'bg-surface-3 border-border-strong text-transparent hover:border-accent'
+                        }`}
                       >
-                        <path
-                          d="M1 5.52L3.92 9.17L9.17 1"
-                          stroke="currentColor"
-                          strokeWidth="1.75"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
+                        <svg
+                          viewBox="0 0 10.1668 10.1668"
+                          className="h-3.5 w-3.5"
+                          fill="none"
+                        >
+                          <path
+                            d="M1 5.52L3.92 9.17L9.17 1"
+                            stroke="currentColor"
+                            strokeWidth="1.75"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </span>
                     </button>
 
                     <button

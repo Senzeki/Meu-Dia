@@ -63,6 +63,8 @@
 - `src/services/mediaService.ts` — Upload para o bucket privado `meu-dia-media` (`personal/` e `shared/`) e acesso exclusivo via Signed URLs com cache.
 - `src/services/syncService.ts` — Outbox offline idempotente (`client_mutation_id`), resolução *Last-Write-Wins* por `updated_at` com soft delete anti-zumbi e fila separada de uploads de mídia.
 - `src/services/backupService.ts` — Geração do `BackupExportPayload` JSON com todos os dados textuais do usuário.
+- `src/services/assistantService.ts` — Orquestração híbrida Edge Function `assistant-ingest` (`local_iso_now` + `timezone`) com fallback resiliente para motor local / fila offline de áudio.
+- `src/services/checkinService.ts` — Check-in semanal proativo em `America/Sao_Paulo` para medidores sem leitura há >= 7 dias (respeitando pausas e sem duplicatas).
 
 ## `src/store/` (Estado Global Zustand)
 - `src/store/useAuthStore.ts` — Sessão, perfil local/remoto, parceiro vinculado e gerenciamento de convites da Casa.
@@ -74,7 +76,8 @@
 - `src/components/layout/TopBar.tsx` — Cabeçalho compacto com avatar, seletor Split View no PC, status offline discreto, Busca Global e `Descansar`.
 - `src/components/layout/BottomNav.tsx` — Barra inferior mobile com 5 abas no alcance do polegar e pílula animada.
 - `src/components/layout/AppShell.tsx` — Casca adaptativa com `React.lazy` (Mobile 1 coluna + Bottom Bar | PC Split View com Conversa fixa à direita).
-- `src/components/chat/ChatBubble.tsx` — Bolha da Conversa com prévia de imagem, vínculos vivos (`open|done|removed`) e menu `Corrigir / Desfazer`.
+- `src/components/chat/ChatBubble.tsx` — Bolha da Conversa com prévia de imagem, vínculos vivos (`open|done|removed`), botões de ambiguidade (`needs_clarification`), transcrição editável e menu `Corrigir / Desfazer`.
+- `src/components/chat/AudioRecorderButton.tsx` — Gravador `MediaRecorder` leve até 90s com contador `0:00 / 1:30`, barra de progresso e cancelamento/envio.
 - `src/components/agenda/TaskModal.tsx` — Modal de criação/edição manual de tarefas (`Agenda`/`Casa`, aguardando retorno e toggle opt-in Modo Ligação).
 - `src/components/casa/MuralModal.tsx` — Modal de criação/edição de recados com horário no Mural e toggle opt-in Modo Ligação.
 - `src/components/casa/CasaItemModal.tsx` — Modal unificado de tarefa compartilhada avulsa ou rotina recorrente (`fixed_weekdays` / `cyclic_days`).
@@ -97,6 +100,8 @@
 - `supabase/config.toml` — Configuração local do projeto Supabase `meu-dia`.
 - `supabase/migrations/0001_initial_schema.sql` — Schema completo (13 tabelas), triggers de `updated_at`, RPCs seguras de pareamento 24h, cancelamento automático de `notification_jobs`, trava atômica `SKIP LOCKED`, RLS rigoroso e bucket privado `meu-dia-media`.
 - `supabase/migrations/0002_phase2_refinements.sql` — Migração de usuário solo ao resgatar convite do parceiro e limpeza automática de `invite_redeem_attempts` (> 24h).
+- `supabase/functions/assistant-ingest/modelRotation.ts` — Rotação sequencial de modelos Groq + fallback Gemini (`AbortController` 12s, fallback em 429/5xx/404/timeout/JSON inválido).
+- `supabase/functions/assistant-ingest/index.ts` — Edge Function autenticada por JWT com Whisper (descarte imediato de áudio), multi-intenção (`actions[]`), ambiguidade (`needs_clarification`) e fuso explícito `America/Sao_Paulo`.
 
 ## `tests/` (Suíte Automatizada Vitest)
 - `tests/setup.ts` — Setup global `@testing-library/jest-dom` e polyfill leve de `HTMLDialogElement` para `jsdom`.
@@ -109,3 +114,7 @@
 - `tests/phase2/sync-and-lww.test.ts` — Testes de fila offline idempotente (`client_mutation_id`), conflito Last-Write-Wins e soft delete anti-zumbi.
 - `tests/phase2/store-chat-search-backup.test.ts` — Testes de paginação (~50), predição local O(1), vínculos vivos, `Corrigir / Desfazer`, busca global e exportação JSON.
 - `tests/phase2/sql-refinements.test.ts` — Testes de segurança e privilégios da migração `0002_phase2_refinements.sql`.
+- `tests/phase3/model-rotation.test.ts` — Testes de rotação de modelos (429/500/404/timeout/JSON inválido/fallback Gemini).
+- `tests/phase3/compound-ambiguity-pause.test.ts` — Testes de textos compostos multi-intenção, ambiguidade (`needs_clarification`) e pedidos naturais de pausa em `America/Sao_Paulo`.
+- `tests/phase3/audio-and-checkin.test.ts` — Testes de fila offline de áudio com descarte pós-transcrição, edição de ruído de obra e check-in semanal sem duplicata.
+- `tests/phase3/security.test.ts` — Auditoria automatizada de JWT obrigatório na Edge Function e zero chaves/segredos no cliente.

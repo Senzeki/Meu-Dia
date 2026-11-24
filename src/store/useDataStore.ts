@@ -2,11 +2,13 @@ import { create } from 'zustand';
 import {
   CHAT_PAGE_SIZE,
   compareChatMessagesAsc,
+  deleteRecord,
   getAllRecords,
   getLatestChatMessagesPage,
   getOlderChatMessagesPage,
   getRecord,
   putRecord,
+  type AudioQueueItem,
   type LocalEntityStoreName,
 } from '@/lib/db/localDb';
 import { ensureInitialSeedData } from '@/lib/db/seedData';
@@ -25,7 +27,12 @@ import { compressImageForUpload } from '@/lib/platform/media';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { getLocalDateString, resolveTimezone } from '@/lib/timezone';
 import { createUuid } from '@/lib/uuid';
+import {
+  MAX_AUDIO_DURATION_SECONDS,
+  ingestWithAssistant,
+} from '@/services/assistantService';
 import { exportBackupFromLocalDb } from '@/services/backupService';
+import { evaluateWeeklyCheckin } from '@/services/checkinService';
 import {
   buildPrivateMediaPath,
   getPrivateMediaSignedUrl,
@@ -38,8 +45,11 @@ import {
   getPendingQueueCounts,
 } from '@/services/syncService';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useUiStore } from '@/store/useUiStore';
 import type {
+  AgendaHorizon,
   Asset,
+  AssistantIngestResponse,
   CareRule,
   ChatMessage,
   DataStoreContract,
@@ -47,12 +57,16 @@ import type {
   GlobalSearchResultItem,
   HouseRoutine,
   LinkedEntityLiveState,
+  LinkedEntityRef,
   MuralNote,
   MutationOperation,
+  StructuredAssistantAction,
   SyncBaseEntity,
   SyncTableName,
   Task,
+  TaskStatus,
   UUID,
+  VaultCategory,
   VaultItem,
 } from '@/types';
 
@@ -86,6 +100,7 @@ async function loadAllActiveFromDb() {
     careRules,
     vaultItems,
     mediaBlobs,
+    audioQueue,
     counts,
     lastSyncedAt,
   ] = await Promise.all([
@@ -97,6 +112,7 @@ async function loadAllActiveFromDb() {
     getAllRecords('care_rules'),
     getAllRecords('vault_items'),
     getAllRecords('media_blobs'),
+    getAllRecords('audio_queue'),
     getPendingQueueCounts(),
     getLastSyncedAt(),
   ]);
@@ -116,6 +132,7 @@ async function loadAllActiveFromDb() {
     careRules: byCreatedDesc(careRules),
     vaultItems: byCreatedDesc(vaultItems),
     mediaBlobs,
+    pendingAudioCount: audioQueue.length,
     counts,
     lastSyncedAt,
   };
@@ -141,8 +158,12 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
   };
 
   const refreshQueueCounts = async () => {
-    const counts = await getPendingQueueCounts();
+    const [counts, audioQueue] = await Promise.all([
+      getPendingQueueCounts(),
+      getAllRecords('audio_queue'),
+    ]);
     set((state) => ({
+      pendingAudioCount: audioQueue.length,
       syncStatus: {
         ...state.syncStatus,
         pending_mutations: counts.pending_mutations,
@@ -217,6 +238,404 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
     });
   };
 
+  const applyStructuredActions = async (
+    actions: StructuredAssistantAction[],
+    sourceMessageId: UUID,
+  ): Promise<{
+    appliedActions: StructuredAssistantAction[];
+    linkedEntities: LinkedEntityRef[];
+  }> => {
+    const profile = useAuthStore.getState().profile;
+    const todayIso = getLocalDateString(new Date(), resolveTimezone(profile.timezone));
+    const appliedActions: StructuredAssistantAction[] = [];
+    const linkedEntities: LinkedEntityRef[] = [];
+
+    for (const action of actions) {
+      const payload = { ...action.payload };
+
+      if (action.kind === 'create_task') {
+        const horizon = (payload.horizon as AgendaHorizon | undefined) ?? 'today';
+        const status = (payload.status as TaskStatus | undefined) ?? 'open';
+        const title = String(payload.title ?? action.summary ?? 'Nova tarefa').trim();
+        const dueDate =
+          payload.due_date !== undefined
+            ? (payload.due_date as string | null)
+            : horizon === 'today'
+              ? todayIso
+              : null;
+
+        const createdTask = await get().saveTask({
+          title,
+          notes: (payload.notes as string | null | undefined) ?? null,
+          horizon,
+          status,
+          due_date: dueDate,
+          waiting_remind_at:
+            (payload.waiting_remind_at as string | null | undefined) ?? null,
+          alarm_call_mode: Boolean(payload.alarm_call_mode),
+        });
+
+        const linkedTask: Task = {
+          ...createdTask,
+          source_message_id: sourceMessageId,
+          updated_at: new Date().toISOString(),
+          client_mutation_id: createUuid(),
+        };
+        await persistAndQueue('tasks', 'upsert', linkedTask);
+        set((state) => ({
+          tasks: state.tasks.map((t) => (t.id === linkedTask.id ? linkedTask : t)),
+        }));
+
+        appliedActions.push({
+          ...action,
+          payload: { ...payload, task_id: linkedTask.id, source_message_id: sourceMessageId },
+        });
+        linkedEntities.push({
+          entity_type: 'task',
+          entity_id: linkedTask.id,
+          tab: 'agenda',
+          agenda_horizon: linkedTask.horizon,
+          label: linkedTask.title,
+          live_state: 'open',
+          can_undo: true,
+        });
+        continue;
+      }
+
+      if (action.kind === 'update_asset_meter') {
+        const assetId = String(payload.asset_id ?? '');
+        const meterValue = Number(payload.meter_value);
+        const asset = get().assets.find((a) => a.id === assetId);
+        if (!asset || !Number.isFinite(meterValue)) continue;
+
+        const prevMeter = asset.current_meter;
+        const prevMeterAt = asset.meter_updated_at;
+        await get().updateAssetMeter(asset.id, meterValue);
+
+        appliedActions.push({
+          ...action,
+          payload: {
+            ...payload,
+            asset_id: asset.id,
+            meter_value: meterValue,
+            previous_meter: prevMeter,
+            previous_meter_updated_at: prevMeterAt,
+            source_message_id: sourceMessageId,
+          },
+        });
+        linkedEntities.push({
+          entity_type: 'asset',
+          entity_id: asset.id,
+          tab: 'cuidados',
+          label: asset.name,
+          live_state: 'open',
+          can_undo: true,
+        });
+        continue;
+      }
+
+      if (action.kind === 'create_mural_note') {
+        const body = String(payload.body ?? action.summary ?? '').trim();
+        if (!body) continue;
+        const note = await get().saveMuralNote({
+          body,
+          notify_at: (payload.notify_at as string | null | undefined) ?? null,
+          recipient_role:
+            (payload.recipient_role as 'partner' | 'me' | undefined) ?? 'partner',
+          alarm_call_mode: Boolean(payload.alarm_call_mode),
+        });
+        const linkedNote: MuralNote = {
+          ...note,
+          source_message_id: sourceMessageId,
+          updated_at: new Date().toISOString(),
+          client_mutation_id: createUuid(),
+        };
+        await persistAndQueue('mural_notes', 'upsert', linkedNote);
+        set((state) => ({
+          muralNotes: state.muralNotes.map((n) =>
+            n.id === linkedNote.id ? linkedNote : n,
+          ),
+        }));
+
+        appliedActions.push({
+          ...action,
+          payload: { ...payload, mural_note_id: linkedNote.id, source_message_id: sourceMessageId },
+        });
+        linkedEntities.push({
+          entity_type: 'mural_note',
+          entity_id: linkedNote.id,
+          tab: 'casa',
+          label: linkedNote.body,
+          live_state: 'open',
+          can_undo: true,
+        });
+        continue;
+      }
+
+      if (action.kind === 'create_vault_item') {
+        const category = (payload.category as VaultCategory | undefined) ?? 'study';
+        const title = String(payload.title ?? action.summary ?? 'Guardado').trim();
+        const createdItem = await get().saveVaultItem({
+          category,
+          title,
+          url: (payload.url as string | null | undefined) ?? null,
+          body: (payload.body as string | null | undefined) ?? null,
+        });
+        const linkedVault: VaultItem = {
+          ...createdItem,
+          source_message_id: sourceMessageId,
+          updated_at: new Date().toISOString(),
+          client_mutation_id: createUuid(),
+        };
+        await persistAndQueue('vault_items', 'upsert', linkedVault);
+        set((state) => ({
+          vaultItems: state.vaultItems.map((v) =>
+            v.id === linkedVault.id ? linkedVault : v,
+          ),
+        }));
+
+        appliedActions.push({
+          ...action,
+          payload: { ...payload, vault_item_id: linkedVault.id, source_message_id: sourceMessageId },
+        });
+        linkedEntities.push({
+          entity_type: 'vault_item',
+          entity_id: linkedVault.id,
+          tab: 'guardados',
+          label: linkedVault.title,
+          live_state: 'open',
+          can_undo: true,
+        });
+        continue;
+      }
+
+      if (action.kind === 'schedule_pause') {
+        const rawWeekdays = Array.isArray(payload.weekdays)
+          ? payload.weekdays
+              .map((d) => Number(d))
+              .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+          : profile.pause_preferences.weekdays;
+        const startTime =
+          typeof payload.start_time === 'string' && /^\d{2}:\d{2}$/.test(payload.start_time)
+            ? payload.start_time
+            : profile.pause_preferences.start_time;
+
+        await useAuthStore.getState().updateProfile({
+          pause_preferences: {
+            ...profile.pause_preferences,
+            weekdays:
+              rawWeekdays.length > 0 ? rawWeekdays : profile.pause_preferences.weekdays,
+            start_time: startTime,
+          },
+        });
+        appliedActions.push({
+          ...action,
+          payload: { ...payload, source_message_id: sourceMessageId },
+        });
+        continue;
+      }
+
+      if (action.kind === 'bridge_market_item') {
+        const itemName = String(payload.item_name ?? action.summary ?? 'Mercado').trim();
+        appliedActions.push({
+          ...action,
+          payload: { ...payload, item_name: itemName, source_message_id: sourceMessageId },
+        });
+        linkedEntities.push({
+          entity_type: 'external_market',
+          entity_id: createUuid(),
+          tab: 'casa',
+          label: `Mercado: ${itemName}`,
+          live_state: 'open',
+          can_undo: false,
+        });
+        continue;
+      }
+
+      if (action.kind === 'bridge_passatempos_search') {
+        appliedActions.push({
+          ...action,
+          payload: { ...payload, source_message_id: sourceMessageId },
+        });
+        linkedEntities.push({
+          entity_type: 'external_media',
+          entity_id: createUuid(),
+          tab: 'guardados',
+          label: action.summary,
+          live_state: 'open',
+          can_undo: false,
+        });
+      }
+    }
+
+    return { appliedActions, linkedEntities };
+  };
+
+  const undoAssistantEffects = async (assistantMessage: ChatMessage) => {
+    const nowIso = new Date().toISOString();
+
+    for (const link of assistantMessage.linked_entities) {
+      if (link.entity_type === 'task') {
+        await get().deleteTask(link.entity_id);
+      } else if (link.entity_type === 'vault_item') {
+        await get().deleteVaultItem(link.entity_id);
+      } else if (link.entity_type === 'mural_note') {
+        await get().deleteMuralNote(link.entity_id);
+      } else if (link.entity_type === 'house_routine') {
+        await get().deleteHouseRoutine(link.entity_id);
+      } else if (link.entity_type === 'asset') {
+        const meterAction = assistantMessage.actions_payload.find(
+          (a) =>
+            a.kind === 'update_asset_meter' &&
+            String(a.payload.asset_id ?? '') === link.entity_id,
+        );
+        const asset = get().assets.find((a) => a.id === link.entity_id);
+        if (asset && meterAction && 'previous_meter' in meterAction.payload) {
+          const restoredAsset: Asset = {
+            ...asset,
+            current_meter:
+              (meterAction.payload.previous_meter as number | null | undefined) ?? null,
+            meter_updated_at:
+              (meterAction.payload.previous_meter_updated_at as string | null | undefined) ??
+              null,
+            updated_at: nowIso,
+            client_mutation_id: createUuid(),
+          };
+          await persistAndQueue('assets', 'upsert', restoredAsset);
+          set((state) => ({
+            assets: state.assets.map((a) =>
+              a.id === restoredAsset.id ? restoredAsset : a,
+            ),
+          }));
+        } else if (asset) {
+          await get().deleteAsset(link.entity_id);
+        }
+      }
+    }
+  };
+
+  const buildAssistantReplyFromIngest = async (params: {
+    userMessageId: UUID;
+    response: AssistantIngestResponse;
+    existingAssistantMsg?: ChatMessage;
+    timestampIso?: string;
+  }) => {
+    const profile = useAuthStore.getState().profile;
+    const nowIso = params.timestampIso ?? new Date().toISOString();
+
+    let appliedActions: StructuredAssistantAction[] = [];
+    let linkedEntities: LinkedEntityRef[] = [];
+
+    if (params.response.status === 'applied') {
+      const applied = await applyStructuredActions(
+        params.response.actions,
+        params.userMessageId,
+      );
+      appliedActions = applied.appliedActions;
+      linkedEntities = applied.linkedEntities;
+    }
+
+    const assistantMsg: ChatMessage = params.existingAssistantMsg
+      ? {
+          ...params.existingAssistantMsg,
+          body: params.response.reply_text,
+          actions_payload: appliedActions,
+          clarification_payload: params.response.clarification ?? null,
+          linked_entities: linkedEntities,
+          updated_at: nowIso,
+          client_mutation_id: createUuid(),
+        }
+      : {
+          id: createUuid(),
+          user_id: profile.id,
+          sender: 'assistant',
+          message_type: 'text',
+          body: params.response.reply_text,
+          media_path: null,
+          actions_payload: appliedActions,
+          clarification_payload: params.response.clarification ?? null,
+          linked_entities: linkedEntities,
+          client_mutation_id: createUuid(),
+          created_at: nowIso,
+          updated_at: nowIso,
+          deleted_at: null,
+        };
+
+    await persistMessage(assistantMsg);
+    return assistantMsg;
+  };
+
+  const findLinkedAssistantMessage = (userMessageId: UUID): ChatMessage | undefined => {
+    const all = get().messages;
+    const byActionPayload = all.find(
+      (m) =>
+        m.sender === 'assistant' &&
+        m.actions_payload.some(
+          (a) => a.payload.source_message_id === userMessageId,
+        ),
+    );
+    if (byActionPayload) return byActionPayload;
+
+    const userIdx = all.findIndex((m) => m.id === userMessageId);
+    if (userIdx === -1) return undefined;
+    const next = all[userIdx + 1];
+    return next && next.sender === 'assistant' ? next : undefined;
+  };
+
+  const drainAudioQueue = async () => {
+    const items = (await getAllRecords('audio_queue')).sort((a, b) =>
+      a.created_at.localeCompare(b.created_at),
+    );
+    if (items.length === 0) return;
+
+    const profile = useAuthStore.getState().profile;
+    const partner = useAuthStore.getState().partner;
+
+    for (const item of items) {
+      const result = await ingestWithAssistant({
+        messageId: item.message_id,
+        audioBlob: item.blob,
+        audioDurationSeconds: item.duration_seconds,
+        assets: get().assets,
+        careRules: get().careRules,
+        partnerName: partner?.display_name ?? null,
+        timezone: profile.timezone,
+        online: get().syncStatus.online,
+      });
+
+      if (result.kind !== 'response') {
+        continue;
+      }
+
+      // Descarta o blob de áudio imediatamente após transcrição bem-sucedida
+      await deleteRecord('audio_queue', item.id);
+
+      const userMsg =
+        get().messages.find((m) => m.id === item.message_id) ??
+        (await getRecord('chat_messages', item.message_id));
+
+      if (userMsg) {
+        const updatedUserMsg: ChatMessage = {
+          ...userMsg,
+          body: result.response.transcript?.trim() || userMsg.body,
+          transcript_editable: true,
+          updated_at: new Date().toISOString(),
+          client_mutation_id: createUuid(),
+        };
+        await persistMessage(updatedUserMsg);
+      }
+
+      const existingAssistant = findLinkedAssistantMessage(item.message_id);
+      await buildAssistantReplyFromIngest({
+        userMessageId: item.message_id,
+        response: result.response,
+        existingAssistantMsg: existingAssistant,
+      });
+    }
+
+    await refreshQueueCounts();
+  };
+
   return {
     hydrated: false,
     syncStatus: {
@@ -282,9 +701,13 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
                 : v,
             ),
             localMediaUrls: nextMediaUrls,
+            pendingAudioCount: snapshot.pendingAudioCount,
             syncStatus: {
               ...state.syncStatus,
-              online: typeof navigator !== 'undefined' ? navigator.onLine : state.syncStatus.online,
+              online:
+                typeof navigator !== 'undefined'
+                  ? navigator.onLine
+                  : state.syncStatus.online,
               pending_mutations: snapshot.counts.pending_mutations,
               pending_uploads: snapshot.counts.pending_uploads,
               last_synced_at: snapshot.lastSyncedAt,
@@ -339,9 +762,105 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
 
     sendChatInput: async (params) => {
       const profile = useAuthStore.getState().profile;
+      const partner = useAuthStore.getState().partner;
       const nowDate = new Date();
       const nowIso = nowDate.toISOString();
-      const prediction = predictChatInput({
+
+      // 1) Áudio curto (até 90s)
+      if (params.audio_blob) {
+        const duration = params.audio_duration_seconds ?? 0;
+        if (duration > MAX_AUDIO_DURATION_SECONDS) {
+          throw new Error(
+            `Áudios podem ter no máximo ${MAX_AUDIO_DURATION_SECONDS} segundos.`,
+          );
+        }
+
+        const userMessageId = createUuid();
+        const userMsg: ChatMessage = {
+          id: userMessageId,
+          user_id: profile.id,
+          sender: 'user',
+          message_type: 'audio_transcript',
+          body: (params.text ?? '').trim() || 'Áudio aguardando transcrição...',
+          transcript_editable: true,
+          media_path: null,
+          actions_payload: [],
+          clarification_payload: null,
+          linked_entities: [],
+          client_mutation_id: createUuid(),
+          created_at: nowIso,
+          updated_at: nowIso,
+          deleted_at: null,
+        };
+        await persistMessage(userMsg);
+
+        const ingestRes = await ingestWithAssistant({
+          messageId: userMessageId,
+          text: params.text,
+          audioBlob: params.audio_blob,
+          audioDurationSeconds: duration,
+          assets: get().assets,
+          careRules: get().careRules,
+          partnerName: partner?.display_name ?? null,
+          timezone: profile.timezone,
+          now: nowDate,
+          online: get().syncStatus.online,
+        });
+
+        const assistantTime = new Date(nowDate.getTime() + 1).toISOString();
+
+        if (ingestRes.kind === 'queued_audio_offline') {
+          const queueItem: AudioQueueItem = {
+            id: createUuid(),
+            message_id: userMessageId,
+            blob: params.audio_blob,
+            mime_type: params.audio_blob.type || 'audio/webm',
+            duration_seconds: duration,
+            created_at: nowIso,
+          };
+          await putRecord('audio_queue', queueItem);
+          await refreshQueueCounts();
+
+          const offlineReply: ChatMessage = {
+            id: createUuid(),
+            user_id: profile.id,
+            sender: 'assistant',
+            message_type: 'text',
+            body: 'Áudio guardado no aparelho. Assim que a conexão voltar, eu transcrevo e organizo para você.',
+            media_path: null,
+            actions_payload: [],
+            clarification_payload: null,
+            linked_entities: [],
+            client_mutation_id: createUuid(),
+            created_at: assistantTime,
+            updated_at: assistantTime,
+            deleted_at: null,
+          };
+          await persistMessage(offlineReply);
+          return;
+        }
+
+        const transcriptText =
+          ingestRes.response.transcript?.trim() || userMsg.body;
+        if (transcriptText !== userMsg.body) {
+          await persistMessage({
+            ...userMsg,
+            body: transcriptText,
+            updated_at: assistantTime,
+            client_mutation_id: createUuid(),
+          });
+        }
+
+        await buildAssistantReplyFromIngest({
+          userMessageId,
+          response: ingestRes.response,
+          timestampIso: assistantTime,
+        });
+        return;
+      }
+
+      // 2) Atalho O(1) imediato para imagem e URL
+      const quickPrediction = predictChatInput({
         text: params.text,
         hasImage: Boolean(params.image_blob),
         imageTitle: params.image_title,
@@ -350,11 +869,11 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
         now: nowDate,
       });
 
-      if (prediction.kind === 'empty') return;
+      if (quickPrediction.kind === 'empty') return;
 
       const userMessageId = createUuid();
 
-      if (prediction.kind === 'vault_print') {
+      if (quickPrediction.kind === 'vault_print') {
         if (!params.image_blob) return;
         const vaultId = createUuid();
         const staged = await stageImageMedia({
@@ -372,7 +891,7 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
           user_id: profile.id,
           sender: 'user',
           message_type: 'image',
-          body: (params.text ?? '').trim() || prediction.title,
+          body: (params.text ?? '').trim() || quickPrediction.title,
           media_path: mediaPath,
           local_preview_url: previewUrl,
           actions_payload: [],
@@ -389,9 +908,9 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
           id: vaultId,
           owner_id: profile.id,
           category: 'print',
-          title: prediction.title,
+          title: quickPrediction.title,
           url: null,
-          body: prediction.body,
+          body: quickPrediction.body,
           media_path: mediaPath,
           local_preview_url: previewUrl,
           source_message_id: userMessageId,
@@ -443,7 +962,7 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
         id: userMessageId,
         user_id: profile.id,
         sender: 'user',
-        message_type: prediction.kind === 'vault_link' ? 'link' : 'text',
+        message_type: quickPrediction.kind === 'vault_link' ? 'link' : 'text',
         body: (params.text ?? '').trim(),
         media_path: null,
         actions_payload: [],
@@ -458,14 +977,14 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
 
       const assistantTime = new Date(nowDate.getTime() + 1).toISOString();
 
-      if (prediction.kind === 'vault_link') {
+      if (quickPrediction.kind === 'vault_link') {
         const vaultItem: VaultItem = {
           id: createUuid(),
           owner_id: profile.id,
           category: 'link',
-          title: prediction.title,
-          url: prediction.url,
-          body: prediction.body,
+          title: quickPrediction.title,
+          url: quickPrediction.url,
+          body: quickPrediction.body,
           media_path: null,
           source_message_id: userMessageId,
           client_mutation_id: createUuid(),
@@ -488,7 +1007,11 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
               kind: 'create_vault_item',
               summary: 'Salvar link em Guardados',
               confidence: 1,
-              payload: { vault_item_id: vaultItem.id, category: 'link', url: prediction.url },
+              payload: {
+                vault_item_id: vaultItem.id,
+                category: 'link',
+                url: quickPrediction.url,
+              },
             },
           ],
           clarification_payload: null,
@@ -511,148 +1034,180 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
         return;
       }
 
-      if (prediction.kind === 'update_asset_meter') {
-        const prevMeter = prediction.asset.current_meter;
-        const prevMeterAt = prediction.asset.meter_updated_at;
-        const updatedAsset: Asset = {
-          ...prediction.asset,
-          current_meter: prediction.newMeter,
-          meter_updated_at: assistantTime,
-          updated_at: assistantTime,
-          client_mutation_id: createUuid(),
-        };
-        await persistAndQueue('assets', 'upsert', updatedAsset);
-        set((state) => ({
-          assets: state.assets.map((a) => (a.id === updatedAsset.id ? updatedAsset : a)),
-        }));
+      // 3) Fluxo híbrido (nuvem quando disponível / motor local composto & ambíguo offline)
+      const ingestRes = await ingestWithAssistant({
+        messageId: userMessageId,
+        text: params.text,
+        assets: get().assets,
+        careRules: get().careRules,
+        partnerName: partner?.display_name ?? null,
+        timezone: profile.timezone,
+        now: nowDate,
+        online: get().syncStatus.online,
+      });
 
-        const assistantMsg: ChatMessage = {
-          id: createUuid(),
-          user_id: profile.id,
-          sender: 'assistant',
-          message_type: 'text',
-          body: prediction.replyText,
-          media_path: null,
-          actions_payload: [
+      if (ingestRes.kind === 'response') {
+        await buildAssistantReplyFromIngest({
+          userMessageId,
+          response: ingestRes.response,
+          timestampIso: assistantTime,
+        });
+      }
+    },
+
+    resolveClarification: async (messageId, optionId) => {
+      const message = get().messages.find((m) => m.id === messageId);
+      if (!message?.clarification_payload || message.clarification_payload.resolved) {
+        return;
+      }
+
+      const option = message.clarification_payload.options.find(
+        (opt) => opt.id === optionId,
+      );
+      if (!option) return;
+
+      const patch = option.action_patch;
+      const patchKind = String(patch.kind ?? 'create_task');
+      const nowIso = new Date().toISOString();
+
+      let newLinked: LinkedEntityRef[] = [];
+      let appliedActions: StructuredAssistantAction[] = [];
+
+      if (patchKind === 'complete_care_rule' && typeof patch.rule_id === 'string') {
+        await get().completeCareRule({ rule_id: patch.rule_id });
+        const rule = get().careRules.find((r) => r.id === patch.rule_id);
+        if (rule) {
+          newLinked = [
             {
-              kind: 'update_asset_meter',
-              summary: 'Atualizar medidor do ativo',
-              confidence: 1,
-              payload: {
-                asset_id: updatedAsset.id,
-                meter_value: prediction.newMeter,
-                previous_meter: prevMeter,
-                previous_meter_updated_at: prevMeterAt,
-              },
-            },
-          ],
-          clarification_payload: null,
-          linked_entities: [
-            {
-              entity_type: 'asset',
-              entity_id: updatedAsset.id,
+              entity_type: 'care_rule',
+              entity_id: rule.id,
               tab: 'cuidados',
-              label: updatedAsset.name,
-              live_state: 'open',
-              can_undo: true,
+              label: rule.title,
+              live_state: 'done',
+              can_undo: false,
+            },
+          ];
+        }
+      } else {
+        const mappedKind: StructuredAssistantAction['kind'] =
+          patchKind === 'update_asset_meter' ||
+          patchKind === 'create_mural_note' ||
+          patchKind === 'create_vault_item' ||
+          patchKind === 'schedule_pause'
+            ? patchKind
+            : 'create_task';
+
+        const applied = await applyStructuredActions(
+          [
+            {
+              kind: mappedKind,
+              summary: option.label,
+              confidence: 1,
+              payload: patch,
             },
           ],
-          client_mutation_id: createUuid(),
-          created_at: assistantTime,
-          updated_at: assistantTime,
-          deleted_at: null,
-        };
-        await persistMessage(assistantMsg);
-        return;
+          messageId,
+        );
+        appliedActions = applied.appliedActions;
+        newLinked = applied.linkedEntities;
       }
 
-      if (prediction.kind === 'clarify_asset_meter') {
-        const assistantMsg: ChatMessage = {
-          id: createUuid(),
-          user_id: profile.id,
-          sender: 'assistant',
-          message_type: 'text',
-          body: prediction.question,
-          media_path: null,
-          actions_payload: [],
-          clarification_payload: {
-            question: prediction.question,
-            resolved: false,
-            selected_option_id: null,
-            options: prediction.options,
-          },
-          linked_entities: [],
-          client_mutation_id: createUuid(),
-          created_at: assistantTime,
-          updated_at: assistantTime,
-          deleted_at: null,
-        };
-        await persistMessage(assistantMsg);
-        return;
-      }
-
-      // create_task ('open' ou 'waiting')
-      const newTask: Task = {
-        id: createUuid(),
-        owner_id: profile.id,
-        household_id: null,
-        scope: 'personal',
-        title: prediction.title,
-        notes: null,
-        horizon: prediction.horizon,
-        status: prediction.status,
-        assigned_to: 'me',
-        assigned_user_id: profile.id,
-        due_date: prediction.dueDate,
-        due_time: null,
-        waiting_remind_at: prediction.waitingRemindAt,
-        alarm_call_mode: false,
-        completed_at: null,
-        source_message_id: userMessageId,
+      const updatedMsg: ChatMessage = {
+        ...message,
+        body: `Confirmado: ${option.label}.`,
+        clarification_payload: {
+          ...message.clarification_payload,
+          resolved: true,
+          selected_option_id: optionId,
+        },
+        actions_payload: [...message.actions_payload, ...appliedActions],
+        linked_entities: [...message.linked_entities, ...newLinked],
+        updated_at: nowIso,
         client_mutation_id: createUuid(),
-        created_at: assistantTime,
-        updated_at: assistantTime,
-        deleted_at: null,
       };
-      await persistAndQueue('tasks', 'upsert', newTask);
-      set((state) => ({ tasks: [newTask, ...state.tasks] }));
 
-      const assistantMsg: ChatMessage = {
+      await persistMessage(updatedMsg);
+    },
+
+    editAudioTranscript: async (messageId, correctedText) => {
+      const cleanText = correctedText.trim();
+      if (!cleanText) return;
+
+      const userMsg = get().messages.find((m) => m.id === messageId);
+      if (!userMsg) return;
+
+      const profile = useAuthStore.getState().profile;
+      const partner = useAuthStore.getState().partner;
+      const nowDate = new Date();
+      const nowIso = nowDate.toISOString();
+
+      // Desfaz efeitos anteriores vinculados a esta mensagem antes de reprocessar
+      const existingAssistant = findLinkedAssistantMessage(messageId);
+      if (existingAssistant) {
+        await undoAssistantEffects(existingAssistant);
+      }
+
+      const updatedUserMsg: ChatMessage = {
+        ...userMsg,
+        body: cleanText,
+        transcript_editable: true,
+        updated_at: nowIso,
+        client_mutation_id: createUuid(),
+      };
+      await persistMessage(updatedUserMsg);
+
+      const ingestRes = await ingestWithAssistant({
+        messageId,
+        text: cleanText,
+        assets: get().assets,
+        careRules: get().careRules,
+        partnerName: partner?.display_name ?? null,
+        timezone: profile.timezone,
+        now: nowDate,
+        online: get().syncStatus.online,
+      });
+
+      if (ingestRes.kind === 'response') {
+        await buildAssistantReplyFromIngest({
+          userMessageId: messageId,
+          response: ingestRes.response,
+          existingAssistantMsg: existingAssistant,
+          timestampIso: new Date(nowDate.getTime() + 1).toISOString(),
+        });
+      }
+    },
+
+    triggerWeeklyCheckinIfDue: async () => {
+      const profile = useAuthStore.getState().profile;
+      const pauseSession = useUiStore.getState().pauseSession;
+      const proposal = evaluateWeeklyCheckin({
+        assets: get().assets,
+        messages: get().messages,
+        activePauseUntil: profile.active_pause_until,
+        pauseActive: pauseSession.active,
+        timezone: profile.timezone,
+      });
+
+      if (!proposal) return false;
+
+      const nowIso = new Date().toISOString();
+      const checkinMsg: ChatMessage = {
         id: createUuid(),
         user_id: profile.id,
         sender: 'assistant',
-        message_type: 'text',
-        body: prediction.replyText,
+        message_type: 'checkin',
+        body: proposal.body,
         media_path: null,
-        actions_payload: [
-          {
-            kind: 'create_task',
-            summary:
-              prediction.status === 'waiting'
-                ? 'Criar item aguardando retorno'
-                : 'Criar tarefa para hoje',
-            confidence: 1,
-            payload: { task_id: newTask.id, horizon: 'today', status: prediction.status },
-          },
-        ],
+        actions_payload: [],
         clarification_payload: null,
-        linked_entities: [
-          {
-            entity_type: 'task',
-            entity_id: newTask.id,
-            tab: 'agenda',
-            agenda_horizon: 'today',
-            label: newTask.title,
-            live_state: 'open',
-            can_undo: true,
-          },
-        ],
+        linked_entities: proposal.linkedEntities,
         client_mutation_id: createUuid(),
-        created_at: assistantTime,
-        updated_at: assistantTime,
+        created_at: nowIso,
+        updated_at: nowIso,
         deleted_at: null,
       };
-      await persistMessage(assistantMsg);
+      await persistMessage(checkinMsg);
+      return true;
     },
 
     undoOrRedirectMessageAction: async (messageId, target) => {
@@ -663,49 +1218,16 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
       const nowIso = new Date().toISOString();
 
       if (target.kind === 'undo_delete') {
-        if (primary.entity_type === 'task') {
-          await get().deleteTask(primary.entity_id);
-        } else if (primary.entity_type === 'vault_item') {
-          await get().deleteVaultItem(primary.entity_id);
-        } else if (primary.entity_type === 'mural_note') {
-          await get().deleteMuralNote(primary.entity_id);
-        } else if (primary.entity_type === 'house_routine') {
-          await get().deleteHouseRoutine(primary.entity_id);
-        } else if (primary.entity_type === 'asset') {
-          const meterAction = message.actions_payload.find(
-            (a) => a.kind === 'update_asset_meter',
-          );
-          const asset = get().assets.find((a) => a.id === primary.entity_id);
-          if (asset && meterAction && 'previous_meter' in meterAction.payload) {
-            const restoredAsset: Asset = {
-              ...asset,
-              current_meter:
-                (meterAction.payload.previous_meter as number | null | undefined) ?? null,
-              meter_updated_at:
-                (meterAction.payload.previous_meter_updated_at as string | null | undefined) ??
-                null,
-              updated_at: nowIso,
-              client_mutation_id: createUuid(),
-            };
-            await persistAndQueue('assets', 'upsert', restoredAsset);
-            set((state) => ({
-              assets: state.assets.map((a) =>
-                a.id === restoredAsset.id ? restoredAsset : a,
-              ),
-            }));
-          } else if (asset) {
-            await get().deleteAsset(primary.entity_id);
-          }
-        }
+        await undoAssistantEffects(message);
 
         const updatedMessage: ChatMessage = {
           ...message,
-          linked_entities: message.linked_entities.map((link, idx) =>
-            idx === 0
+          linked_entities: message.linked_entities.map((link) =>
+            link.can_undo
               ? {
                   ...link,
                   live_state:
-                    primary.entity_type === 'asset' ? 'open' : 'removed',
+                    link.entity_type === 'asset' ? 'open' : 'removed',
                   can_undo: false,
                 }
               : link,
@@ -719,7 +1241,10 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
 
       if (target.kind === 'move_task_horizon') {
         const profile = useAuthStore.getState().profile;
-        const todayIso = getLocalDateString(new Date(), resolveTimezone(profile.timezone));
+        const todayIso = getLocalDateString(
+          new Date(),
+          resolveTimezone(profile.timezone),
+        );
 
         if (primary.entity_type === 'task') {
           const existingTask = get().tasks.find((t) => t.id === primary.entity_id);
@@ -759,7 +1284,6 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
           return;
         }
 
-        // Converte outro tipo (ex: vault_item ou mural_note) em Task no horizonte alvo
         let title = primary.label;
         if (primary.entity_type === 'vault_item') {
           const v = get().vaultItems.find((item) => item.id === primary.entity_id);
@@ -835,7 +1359,9 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
 
       if (target.kind === 'move_to_vault') {
         if (primary.entity_type === 'vault_item') {
-          const existingVault = get().vaultItems.find((v) => v.id === primary.entity_id);
+          const existingVault = get().vaultItems.find(
+            (v) => v.id === primary.entity_id,
+          );
           if (!existingVault) return;
           const updatedVault: VaultItem = {
             ...existingVault,
@@ -1032,7 +1558,8 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
       const updated: Task = {
         ...existing,
         status,
-        completed_at: status === 'done' ? nowIso : status === 'open' ? null : existing.completed_at,
+        completed_at:
+          status === 'done' ? nowIso : status === 'open' ? null : existing.completed_at,
         updated_at: nowIso,
         client_mutation_id: createUuid(),
       };
@@ -1241,7 +1768,9 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
 
       await persistAndQueue('house_routines', 'upsert', updated);
       set((state) => ({
-        houseRoutines: state.houseRoutines.map((r) => (r.id === routineId ? updated : r)),
+        houseRoutines: state.houseRoutines.map((r) =>
+          r.id === routineId ? updated : r,
+        ),
       }));
     },
 
@@ -1303,7 +1832,8 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
         meter_unit: input.meter_unit,
         current_meter: nextMeter,
         meter_updated_at:
-          input.current_meter !== undefined && input.current_meter !== existing?.current_meter
+          input.current_meter !== undefined &&
+          input.current_meter !== existing?.current_meter
             ? nowIso
             : (existing?.meter_updated_at ?? (nextMeter !== null ? nowIso : null)),
         purchased_at:
@@ -1361,7 +1891,6 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
       };
       await persistAndQueue('assets', 'soft_delete', deleted);
 
-      // Soft-delete também as regras vinculadas a esse ativo
       const childRules = get().careRules.filter((r) => r.asset_id === assetId);
       for (const rule of childRules) {
         const deletedRule: CareRule = {
@@ -1587,7 +2116,9 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
             title: task.title,
             subtitle:
               task.notes ||
-              (task.status === 'waiting' ? 'Aguardando retorno' : `Agenda • ${task.horizon}`),
+              (task.status === 'waiting'
+                ? 'Aguardando retorno'
+                : `Agenda • ${task.horizon}`),
             updated_at: task.updated_at,
           });
         }
@@ -1721,11 +2252,20 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
         typeof navigator !== 'undefined' ? navigator.onLine : get().syncStatus.online;
 
       set((state) => ({
-        syncStatus: { ...state.syncStatus, online, syncing: online && isSupabaseConfigured() },
+        syncStatus: {
+          ...state.syncStatus,
+          online,
+          syncing: online && isSupabaseConfigured(),
+        },
       }));
 
       try {
+        if (online) {
+          await drainAudioQueue();
+        }
+
         const result = await runSyncFlush({ online });
+        const audioQueue = await getAllRecords('audio_queue');
         if (result.synced) {
           const snapshot = await loadAllActiveFromDb();
           const localUrls = get().localMediaUrls;
@@ -1746,6 +2286,7 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
                 ? { ...v, local_preview_url: localUrls[v.media_path] }
                 : v,
             ),
+            pendingAudioCount: audioQueue.length,
             syncStatus: {
               online,
               syncing: false,
@@ -1756,6 +2297,7 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
           });
         } else {
           set({
+            pendingAudioCount: audioQueue.length,
             syncStatus: {
               online,
               syncing: false,
@@ -1766,8 +2308,12 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
           });
         }
       } catch {
-        const counts = await getPendingQueueCounts();
+        const [counts, audioQueue] = await Promise.all([
+          getPendingQueueCounts(),
+          getAllRecords('audio_queue'),
+        ]);
         set((state) => ({
+          pendingAudioCount: audioQueue.length,
           syncStatus: {
             ...state.syncStatus,
             online,
@@ -1783,9 +2329,5 @@ export const useDataStore = create<DataStoreContract>((set, get) => {
       const profile = useAuthStore.getState().profile;
       return exportBackupFromLocalDb(profile);
     },
-
-    resolveClarification: async () => undefined,
-    editAudioTranscript: async () => undefined,
-    triggerWeeklyCheckinIfDue: async () => false,
   };
 });
