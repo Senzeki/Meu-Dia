@@ -32,6 +32,9 @@ dist-apk/
 # Testing & coverage
 coverage/
 
+# Personal data backups (NEVER commit)
+backups/
+
 # Logs & OS
 *.log
 npm-debug.log*

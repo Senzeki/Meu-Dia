@@ -107,6 +107,8 @@
 - `supabase/functions/assistant-ingest/modelRotation.ts` — Rotação sequencial de modelos Groq + fallback Gemini (`AbortController` 12s, fallback em 429/5xx/404/timeout/JSON inválido).
 - `supabase/functions/assistant-ingest/index.ts` — Edge Function autenticada por JWT com Whisper (descarte imediato de áudio), multi-intenção (`actions[]`), ambiguidade (`needs_clarification`) e fuso explícito `America/Sao_Paulo`.
 - `supabase/migrations/0003_phase4_notifications_and_cron.sql` — Triggers server-side (`SECURITY DEFINER`) para enfileiramento automático de `notification_jobs` em `America/Sao_Paulo` (tarefas, mural e garantias 30d antes às 09:00) e configuração `pg_cron`.
+- `supabase/deploy_all_migrations.sql` — Script SQL unificado (`0001 + 0002 + 0003`) pronto para execução única no SQL Editor.
+- `supabase/optional_cleanup_old_things_tables.sql` — Script opcional para remover tabelas antigas do `Things` após conferência do backup.
 - `supabase/functions/dispatch-notifications/index.ts` — Worker de push FCM HTTP v1 autenticado por `CRON_SECRET`/`service_role`, usando `claim_due_notification_jobs`, respeitando pausa ativa para `push` e mantendo `call_alarm` ativo.
 - `supabase/functions/bridge-rotinas/index.ts` — Ponte opcional autenticada por JWT atualizando/inserindo `produtos_armario` (`status = 'falta'`, `na_lista_mercado = true`).
 - `supabase/functions/bridge-passatempos/index.ts` — Ponte opcional autenticada por JWT consultando `/search` (até 3 candidatos confirmáveis) e gravando exclusivamente em `public.inbox` (nunca sobrescrevendo `user_data`).
@@ -120,6 +122,7 @@
 - `android/app/src/main/java/com/meudia/app/NotificationActionReceiver.java` — Ações inline (`Adiar 1h`, `Concluir`, `Adiar 10 min`, `Abrir`).
 - `scripts/gerar-apk.ps1` — Script automatizado com sincronização de versão (`package.json` + `build.gradle`), autodetecção de JDK 21 / `ANDROID_HOME`, build Web, `npx cap sync android`, `gradlew.bat assembleDebug` e publicação no Google Drive (`G:\Meu Drive\Programacão\Meu Dia\`) com `log_atualizacoes.txt`.
 - `scripts/sync-supabase-secrets.ps1` — Envia com 1 comando os segredos de `supabase/functions/.env` (gitignored) para as Edge Functions do novo projeto Supabase.
+- `scripts/deploy-supabase.ps1` — Automatiza `supabase link`, `db push`, upload de segredos e deploy das 4 Edge Functions no projeto Supabase.
 - `supabase/functions/.env.example` — Template dos segredos server-side das Edge Functions (`GROQ_API_KEY`, `GEMINI_API_KEY`, `CRON_SECRET`, FCM e pontes).
 - `docs/gerar-apk.md` — Protocolo oficial de versionamento, changelog e geração de APK no Google Drive.
 - `log_atualizacoes.txt` — Histórico de versões do APK sincronizado com o Google Drive.
