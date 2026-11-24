@@ -33,6 +33,7 @@
 - `src/types/notifications.ts` — `DevicePushToken`, `NotificationJob` (`push|call_alarm`) e `AndroidNotificationDiagnostics`.
 - `src/types/sync.ts` — Fila offline `OutboxMutation`, fila de upload `MediaUploadTask` e `BackupExportPayload`.
 - `src/types/platform.ts` — Contratos da camada de abstração Web vs. Capacitor (`PlatformAdapter`).
+- `src/types/domain.ts` — Contrato completo de ações, entradas e seletores do `DataStoreContract` para integração `frontend-ui` + `backend-core`.
 - `src/types/index.ts` — Barrel export unificado dos contratos.
 
 ## `src/styles/` (Design System Escuro & Motion)
@@ -58,6 +59,7 @@
 ## `src/store/` (Estado Global Zustand)
 - `src/store/useAuthStore.ts` — Sessão, perfil local/remoto, parceiro vinculado e gerenciamento de convites da Casa.
 - `src/store/useUiStore.ts` — Navegação Mobile/PC Split View, horizonte da Agenda, diálogos e sessão do modo `Descansar`.
+- `src/store/useDataStore.ts` — Store central local-first das 5 áreas, fila offline, busca global e exportação JSON.
 
 ## `src/components/` (Componentes Visuais)
 - `src/components/ui/ModalDialog.tsx` — Wrapper acessível para `<dialog>` nativo com `closedby="any"` e fallback light-dismiss.
